@@ -1,3 +1,0 @@
--- Ledger Service: Migration placeholder
--- Migrations reais serão criadas na Fase 3
-SELECT 1;

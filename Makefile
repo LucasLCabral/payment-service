@@ -1,6 +1,6 @@
 # Makefile para Payment Service
 
-.PHONY: help proto protog build test docker-up docker-down docker-logs tidy deps
+.PHONY: help proto protog build test docker-up docker-down docker-logs tidy deps db-reset
 
 help: ## Mostra esta mensagem de ajuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -45,3 +45,7 @@ migrate-payment-up: ## Executa migrations do Payment Service
 
 migrate-ledger-up: ## Executa migrations do Ledger Service
 	@echo "Migrations serão executadas automaticamente pelo Tilt/Docker"
+
+db-reset: ## Remove volumes dos Postgres e recria (initdb roda SQL em deployments/migrations/*)
+	docker-compose down -v
+	docker-compose up -d postgres-payment postgres-ledger
