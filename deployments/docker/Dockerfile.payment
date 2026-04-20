@@ -1,0 +1,27 @@
+# Stage 1: Build
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/payment-service ./cmd/payment-service
+
+# Stage 2: Runtime
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+COPY --from=builder /app/bin/payment-service .
+
+EXPOSE 9090
+
+CMD ["./payment-service"]
