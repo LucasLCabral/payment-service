@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package common;
+
+option go_package = "github.com/LucasLCabral/payment-service/proto/payment";
+
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_PENDING     = 1;
+  PAYMENT_STATUS_SETTLED     = 2;
+  PAYMENT_STATUS_DECLINED    = 3;
+  PAYMENT_STATUS_FAILED      = 4;
+}
+
+enum Currency {
+  CURRENCY_UNSPECIFIED = 0;
+  CURRENCY_BRL         = 1;
+  CURRENCY_USD         = 2;
+}
