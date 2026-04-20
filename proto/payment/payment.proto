@@ -2,40 +2,38 @@ syntax = "proto3";
 
 package payment;
 
-option go_package = "github.com/LucasLCabral/payment-service/proto/payment";
-
 import "proto/common/common.proto";
+
+option go_package = "github.com/LucasLCabral/payment-service/protog/payment;payment";
 
 service PaymentService {
   rpc CreatePayment(CreatePaymentRequest) returns (CreatePaymentResponse);
-  rpc GetPayment(GetPaymentRequest)       returns (GetPaymentResponse);
+  rpc GetPayment(GetPaymentRequest) returns (GetPaymentResponse);
 }
 
 message CreatePaymentRequest {
-  string   idempotency_key = 1; // UUID v4, gerado pelo cliente
-  int64    amount_cents    = 2; // ex: 10050 = R$ 100,50
-  common.Currency currency        = 3;
-  string   payer_id        = 4; // UUID do pagador
-  string   payee_id        = 5; // UUID do recebedor
-  string   description     = 6; // opcional, max 255 chars
+  string idempotency_key = 1;
+  int64 amount_cents = 2;
+  common.Currency currency = 3;
+  string payer_id = 4;
+  string payee_id = 5;
+  string description = 6;
 }
 
 message CreatePaymentResponse {
-  string        payment_id = 1; // UUID gerado pelo Payment Service
-  common.PaymentStatus status     = 2; // sempre PENDING aqui
-  string        created_at = 3; // RFC3339
+  string payment_id = 1;
+  common.PaymentStatus status = 2;
+  string created_at = 3;
 }
 
-message GetPaymentRequest {
-  string payment_id = 1;
-}
+message GetPaymentRequest { string payment_id = 1; }
 
 message GetPaymentResponse {
-  string        payment_id     = 1;
-  common.PaymentStatus status         = 2;
-  int64         amount_cents   = 3;
-  common.Currency      currency       = 4;
-  string        created_at     = 5;
-  string        updated_at     = 6;
-  string        decline_reason = 7; // preenchido se DECLINED
+  string payment_id = 1;
+  common.PaymentStatus status = 2;
+  int64 amount_cents = 3;
+  common.Currency currency = 4;
+  string created_at = 5;
+  string updated_at = 6;
+  string decline_reason = 7;
 }

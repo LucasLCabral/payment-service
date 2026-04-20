@@ -1,17 +1,21 @@
 # Makefile para Payment Service
 
-.PHONY: help proto build test docker-up docker-down docker-logs tidy deps
+.PHONY: help proto protog build test docker-up docker-down docker-logs tidy deps
 
 help: ## Mostra esta mensagem de ajuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-proto: ## Gera stubs gRPC a partir dos arquivos .proto
-	protoc --go_out=. --go-grpc_out=. \
+protog: ## Gera stubs Go em protog/ a partir de proto/**/*.proto
+	protoc --proto_path=. \
+		--go_out=. --go_opt=module=github.com/LucasLCabral/payment-service \
+		--go-grpc_out=. --go-grpc_opt=module=github.com/LucasLCabral/payment-service \
 		proto/common/common.proto \
 		proto/payment/payment.proto
 
+proto: protog
+
 build: ## Compila todos os serviços
-	go build -o bin/API Gateway ./cmd/API Gateway
+	go build -o bin/api-gateway ./cmd/api-gateway
 	go build -o bin/payment-service ./cmd/payment-service
 	go build -o bin/ledger-service ./cmd/ledger-service
 
