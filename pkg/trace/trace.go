@@ -7,11 +7,11 @@ import (
 )
 
 type contextKey string
-type metadataKey string
 
 const (
-	TraceIDKey         contextKey  = "trace_id"
-	TraceIDMetadataKey metadataKey = "x-trace-id"
+	TraceIDKey contextKey = "trace_id"
+	
+	XTraceIDHeader = "x-trace-id"
 )
 
 func WithTraceID(ctx context.Context, traceID string) context.Context {
