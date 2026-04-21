@@ -8,8 +8,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 )
 
-// InjectAMQPHeaders copies W3C trace context from ctx into h (traceparent, tracestate).
-func InjectAMQPHeaders(ctx context.Context, h map[string]interface{}) {
+func InjectAMQPHeaders(ctx context.Context, h map[string]interface{}) {	
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
 	for k, v := range carrier {
@@ -17,7 +16,6 @@ func InjectAMQPHeaders(ctx context.Context, h map[string]interface{}) {
 	}
 }
 
-// ExtractAMQPContext returns parent with the remote span from AMQP headers (if any).
 func ExtractAMQPContext(parent context.Context, headers amqp.Table) context.Context {
 	c := propagation.MapCarrier{}
 	for k, v := range headers {

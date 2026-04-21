@@ -14,8 +14,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-// Init configures the global TracerProvider and W3C propagators (TraceContext + Baggage).
-// Call the returned shutdown on process exit (e.g. after SIGTERM) with a bounded context.
 func Init(ctx context.Context, serviceName string) (shutdown func(context.Context) error, err error) {
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
