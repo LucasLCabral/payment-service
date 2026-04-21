@@ -13,7 +13,7 @@ import (
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	"github.com/LucasLCabral/payment-service/pkg/messaging"
-	"github.com/LucasLCabral/payment-service/pkg/otelsetup"
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 )
 
@@ -24,7 +24,7 @@ func main() {
 	log := logger.New("ledger-service")
 	ctx = trace.EnsureTraceID(ctx)
 
-	otelShutdown, err := otelsetup.Init(ctx, "ledger-service")
+	otelShutdown, err := telemetry.Init(ctx, "ledger-service")
 	if err != nil {
 		log.Error(ctx, "otel setup failed", "err", err)
 		os.Exit(1)

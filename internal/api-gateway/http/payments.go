@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/google/uuid"
 )
@@ -75,6 +76,7 @@ func (h *PaymentsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		handleGRPCError(w, ctx, h.log, err)
 		return
 	}
+	telemetry.AnnotatePaymentID(ctx, res.ID.String())
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"payment_id": res.ID.String(),
@@ -100,6 +102,8 @@ func (h *PaymentsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+
+	telemetry.AnnotatePaymentID(ctx, paymentID.String())
 
 	res, err := h.payment.GetPayment(ctx, &payment.GetPaymentRequest{PaymentID: paymentID})
 	if err != nil {

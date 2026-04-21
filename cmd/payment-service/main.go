@@ -16,7 +16,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/settlement"
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
-	"github.com/LucasLCabral/payment-service/pkg/otelsetup"
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/messaging"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	pb "github.com/LucasLCabral/payment-service/protog/payment"
@@ -31,7 +31,7 @@ func main() {
 	log := logger.New("payment-service")
 	ctx = trace.EnsureTraceID(ctx)
 
-	otelShutdown, err := otelsetup.Init(ctx, "payment-service")
+	otelShutdown, err := telemetry.Init(ctx, "payment-service")
 	if err != nil {
 		log.Error(ctx, "otel setup failed", "err", err)
 		os.Exit(1)

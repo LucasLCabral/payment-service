@@ -9,7 +9,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/repository"
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
-	"github.com/LucasLCabral/payment-service/pkg/otelamqp"
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -33,7 +33,7 @@ func NewHandler(tx TransactionRunner, repo repository.Payment, log logger.Logger
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
-	ctx = otelamqp.ExtractContext(ctx, msg.Headers)
+	ctx = telemetry.ExtractAMQPContext(ctx, msg.Headers)
 
 	tracer := otel.Tracer("payment-service")
 	ctx, span := tracer.Start(ctx, "settlement consume",
@@ -51,6 +51,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("unmarshal: %w", err)
 	}
+	telemetry.AnnotatePaymentID(ctx, evt.PaymentID.String())
 
 	newStatus := mapStatus(evt.Status)
 	if newStatus == payment.StatusUnspecified {

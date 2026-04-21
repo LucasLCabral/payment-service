@@ -2,7 +2,6 @@ package ledger
 
 import "github.com/google/uuid"
 
-// PaymentCreatedEvent is the payload received from the payment.created queue.
 type PaymentCreatedEvent struct {
 	Event          string    `json:"event"`
 	PaymentID      uuid.UUID `json:"payment_id"`
@@ -13,7 +12,6 @@ type PaymentCreatedEvent struct {
 	PayeeID        uuid.UUID `json:"payee_id"`
 }
 
-// SettlementResult is the payload published in ledger.settled.accepted / .declined.
 type SettlementResult struct {
 	PaymentID     uuid.UUID `json:"payment_id"`
 	Status        string    `json:"status"`

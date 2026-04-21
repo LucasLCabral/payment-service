@@ -7,7 +7,7 @@ import (
 
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
-	"github.com/LucasLCabral/payment-service/pkg/otelamqp"
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
@@ -25,7 +25,7 @@ func NewHandler(svc *Service, log logger.Logger) *Handler {
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
-	ctx = otelamqp.ExtractContext(ctx, msg.Headers)
+	ctx = telemetry.ExtractAMQPContext(ctx, msg.Headers)
 
 	tracer := otel.Tracer("ledger-service")
 	ctx, span := tracer.Start(ctx, "payment.created consume",
@@ -43,6 +43,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("unmarshal: %w", err)
 	}
+	telemetry.AnnotatePaymentID(ctx, evt.PaymentID.String())
 
 	h.log.Info(ctx, "processing payment.created",
 		"payment_id", evt.PaymentID,

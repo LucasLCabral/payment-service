@@ -12,7 +12,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/payment"
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/ws"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
-	"github.com/LucasLCabral/payment-service/pkg/otelsetup"
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -27,7 +27,7 @@ func main() {
 	log := logger.New("api-gateway")
 	ctx = trace.EnsureTraceID(ctx)
 
-	otelShutdown, err := otelsetup.Init(ctx, "api-gateway")
+	otelShutdown, err := telemetry.Init(ctx, "api-gateway")
 	if err != nil {
 		log.Error(ctx, "otel setup failed", "err", err)
 		os.Exit(1)

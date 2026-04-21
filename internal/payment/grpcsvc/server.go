@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	pb "github.com/LucasLCabral/payment-service/protog/payment"
 	"google.golang.org/grpc/codes"
@@ -41,6 +42,7 @@ func (s *Server) CreatePayment(ctx context.Context, req *pb.CreatePaymentRequest
 		}
 		return nil, status.Errorf(codes.Internal, "%v", err)
 	}
+	telemetry.AnnotatePaymentID(ctx, res.ID.String())
 	return paymentToCreateResponse(res), nil
 }
 
@@ -55,6 +57,7 @@ func (s *Server) GetPayment(ctx context.Context, req *pb.GetPaymentRequest) (*pb
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	telemetry.AnnotatePaymentID(ctx, in.PaymentID.String())
 
 	res, err := s.Svc.GetPayment(ctx, in)
 	if err != nil {
