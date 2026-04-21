@@ -50,6 +50,10 @@ func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, bo
 	)
 }
 
+func (p *Publisher) Channel() *amqp.Channel {
+	return p.channel
+}
+
 func (p *Publisher) Close() error {
 	if err := p.channel.Close(); err != nil {
 		return err

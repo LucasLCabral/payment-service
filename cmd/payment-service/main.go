@@ -9,13 +9,15 @@ import (
 	"syscall"
 
 	"github.com/LucasLCabral/payment-service/internal/payment/grpcsvc"
+	"github.com/LucasLCabral/payment-service/internal/payment/outbox"
 	"github.com/LucasLCabral/payment-service/internal/payment/repository/postgres"
 	"github.com/LucasLCabral/payment-service/internal/payment/service"
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/grpctrace"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/messaging"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
-	"github.com/LucasLCabral/payment-service/protog/payment"
+	pb "github.com/LucasLCabral/payment-service/protog/payment"
 	"google.golang.org/grpc"
 )
 
@@ -32,16 +34,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	dbCfg := database.Config{
+	db, err := database.Connect(ctx, database.Config{
 		Host:     getEnv("PAYMENT_DB_HOST", "localhost"),
 		Port:     port,
 		User:     getEnv("PAYMENT_DB_USER", "payment_user"),
 		Password: getEnv("PAYMENT_DB_PASSWORD", "payment_pass"),
 		Database: getEnv("PAYMENT_DB_NAME", "payment_db"),
 		SSLMode:  getEnv("PAYMENT_DB_SSLMODE", "disable"),
-	}
-
-	db, err := database.Connect(ctx, dbCfg)
+	})
 	if err != nil {
 		log.Error(ctx, "database connection failed", "err", err)
 		os.Exit(1)
@@ -51,6 +51,26 @@ func main() {
 	repo := &postgres.PaymentRepository{DB: db}
 	txRunner := database.NewTransactor(db)
 	svc := service.NewPayment(txRunner, repo)
+
+	if rabbitURL := os.Getenv("RABBITMQ_URL"); rabbitURL != "" {
+		rabbit, err := messaging.NewPublisher(ctx, messaging.Config{URL: rabbitURL})
+		if err != nil {
+			log.Error(ctx, "rabbitmq connection failed", "err", err)
+			os.Exit(1)
+		}
+		defer rabbit.Close()
+
+		if err := outbox.DeclareExchange(rabbit); err != nil {
+			log.Error(ctx, "rabbitmq exchange declare failed", "err", err)
+			os.Exit(1)
+		}
+
+		pub := outbox.NewPublisher(db, rabbit, log)
+		go pub.Run(ctx)
+		log.Info(ctx, "outbox publisher enabled", "rabbitmq", rabbitURL)
+	} else {
+		log.Warn(ctx, "RABBITMQ_URL not set, outbox publisher disabled")
+	}
 
 	addr := ":" + getEnv("PAYMENT_GRPC_PORT", "9090")
 	lis, err := net.Listen("tcp", addr)
@@ -62,7 +82,7 @@ func main() {
 	srv := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(grpctrace.UnaryServerInterceptor()),
 	)
-	payment.RegisterPaymentServiceServer(srv, &grpcsvc.Server{Svc: svc})
+	pb.RegisterPaymentServiceServer(srv, &grpcsvc.Server{Svc: svc})
 
 	go func() {
 		log.Info(ctx, "gRPC listening", "addr", addr)
@@ -71,10 +91,14 @@ func main() {
 		}
 	}()
 
+	log.Info(ctx, "payment-service up", "grpc", addr)
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
+
 	log.Info(ctx, "shutdown signal received")
+	cancel()
 	srv.GracefulStop()
 	log.Info(ctx, "payment-service stopped")
 }
