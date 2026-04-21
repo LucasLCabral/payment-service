@@ -20,7 +20,15 @@ func WithTraceID(ctx context.Context, traceID string) context.Context {
 	return context.WithValue(ctx, TraceIDKey, traceID)
 }
 
+func TraceIDForLog(ctx context.Context) string {
+	return traceIDString(ctx)
+}
+
 func GetTraceID(ctx context.Context) string {
+	return traceIDString(ctx)
+}
+
+func traceIDString(ctx context.Context) string {
 	if sc := oteltrace.SpanFromContext(ctx).SpanContext(); sc.IsValid() {
 		return sc.TraceID().String()
 	}

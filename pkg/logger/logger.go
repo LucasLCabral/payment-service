@@ -33,8 +33,7 @@ func New(serviceName string) Logger {
 }
 
 func (l *slogLogger) withTraceID(ctx context.Context, args []any) []any {
-	traceID := trace.GetTraceID(ctx)
-	return append([]any{slog.String("trace_id", traceID)}, args...)
+	return append([]any{slog.String("trace_id", trace.TraceIDForLog(ctx))}, args...)
 }
 
 func (l *slogLogger) Debug(ctx context.Context, msg string, args ...any) {
