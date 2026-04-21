@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type contextKey string
@@ -34,6 +35,25 @@ func EnsureTraceID(ctx context.Context) context.Context {
 		return WithTraceID(ctx, traceID)
 	}
 	return WithTraceID(ctx, NewTraceID())
+}
+
+func TraceIDFromAMQPHeaders(headers amqp.Table) uuid.UUID {
+	if headers == nil {
+		return uuid.New()
+	}
+	raw, ok := headers[XTraceIDHeader]
+	if !ok {
+		return uuid.New()
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return uuid.New()
+	}
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.New()
+	}
+	return id
 }
 
 func GetTraceUUID(ctx context.Context) uuid.UUID {

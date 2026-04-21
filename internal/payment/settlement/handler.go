@@ -1,0 +1,86 @@
+package settlement
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+
+	"github.com/LucasLCabral/payment-service/internal/payment/repository"
+	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
+	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/payment"
+	"github.com/LucasLCabral/payment-service/pkg/trace"
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+type TransactionRunner interface {
+	WithinTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error
+}
+
+type Handler struct {
+	tx   TransactionRunner
+	repo repository.Payment
+	log  logger.Logger
+}
+
+func NewHandler(tx TransactionRunner, repo repository.Payment, log logger.Logger) *Handler {
+	return &Handler{tx: tx, repo: repo, log: log}
+}
+
+func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
+	traceID := trace.TraceIDFromAMQPHeaders(msg.Headers)
+	ctx = trace.WithTraceID(ctx, traceID.String())
+
+	var evt pkgledger.SettlementResult
+	if err := json.Unmarshal(msg.Body, &evt); err != nil {
+		h.log.Error(ctx, "invalid settlement payload", "err", err, "body", string(msg.Body))
+		return fmt.Errorf("unmarshal: %w", err)
+	}
+
+	newStatus := mapStatus(evt.Status)
+	if newStatus == payment.StatusUnspecified {
+		h.log.Error(ctx, "unknown settlement status", "status", evt.Status, "payment_id", evt.PaymentID)
+		return fmt.Errorf("unknown settlement status: %s", evt.Status)
+	}
+
+	h.log.Info(ctx, "processing settlement",
+		"payment_id", evt.PaymentID,
+		"status", evt.Status,
+	)
+
+	err := h.tx.WithinTransaction(ctx, func(tx *sql.Tx) error {
+		if err := h.repo.UpdateStatus(ctx, tx, evt.PaymentID, newStatus, evt.DeclineReason); err != nil {
+			return fmt.Errorf("update status: %w", err)
+		}
+
+		return h.repo.InsertAuditLog(ctx, tx, &payment.AuditEntry{
+			EntityType: "payment",
+			EntityID:   evt.PaymentID,
+			Action:     "settlement." + evt.Status,
+			OldStatus:  payment.StatusPending,
+			NewStatus:  newStatus,
+			TraceID:    traceID,
+			Actor:      "ledger-service",
+		})
+	})
+	if err != nil {
+		h.log.Error(ctx, "settlement processing failed", "payment_id", evt.PaymentID, "err", err)
+		return err
+	}
+
+	h.log.Info(ctx, "settlement applied", "payment_id", evt.PaymentID, "new_status", newStatus)
+	return nil
+}
+
+func mapStatus(s string) payment.PaymentStatus {
+	switch s {
+	case "SETTLED":
+		return payment.StatusSettled
+	case "DECLINED":
+		return payment.StatusDeclined
+	default:
+		return payment.StatusUnspecified
+	}
+}
+

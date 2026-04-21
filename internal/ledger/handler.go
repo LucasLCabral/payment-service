@@ -8,7 +8,6 @@ import (
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
-	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -22,7 +21,7 @@ func NewHandler(svc *Service, log logger.Logger) *Handler {
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
-	traceID := extractTraceID(msg.Headers)
+	traceID := trace.TraceIDFromAMQPHeaders(msg.Headers)
 	ctx = trace.WithTraceID(ctx, traceID.String())
 
 	var evt pkgledger.PaymentCreatedEvent
@@ -45,21 +44,3 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 	return nil
 }
 
-func extractTraceID(headers amqp.Table) uuid.UUID {
-	if headers == nil {
-		return uuid.New()
-	}
-	raw, ok := headers["x-trace-id"]
-	if !ok {
-		return uuid.New()
-	}
-	s, ok := raw.(string)
-	if !ok {
-		return uuid.New()
-	}
-	id, err := uuid.Parse(s)
-	if err != nil {
-		return uuid.New()
-	}
-	return id
-}

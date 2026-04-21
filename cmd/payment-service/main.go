@@ -12,6 +12,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/outbox"
 	"github.com/LucasLCabral/payment-service/internal/payment/repository/postgres"
 	"github.com/LucasLCabral/payment-service/internal/payment/service"
+	"github.com/LucasLCabral/payment-service/internal/payment/settlement"
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/grpctrace"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
@@ -65,11 +66,32 @@ func main() {
 			os.Exit(1)
 		}
 
+		if err := settlement.DeclareTopology(rabbit.Channel()); err != nil {
+			log.Error(ctx, "settlement topology setup failed", "err", err)
+			os.Exit(1)
+		}
+
 		pub := outbox.NewPublisher(db, rabbit, log)
 		go pub.Run(ctx)
-		log.Info(ctx, "outbox publisher enabled", "rabbitmq", rabbitURL)
+
+		cons, err := messaging.NewConsumer(ctx, messaging.Config{URL: rabbitURL})
+		if err != nil {
+			log.Error(ctx, "rabbitmq consumer connection failed", "err", err)
+			os.Exit(1)
+		}
+		defer cons.Close()
+
+		settlementHandler := settlement.NewHandler(txRunner, repo, log)
+		go func() {
+			log.Info(ctx, "consuming settlement queue", "queue", settlement.Queue)
+			if err := cons.Consume(ctx, settlement.Queue, settlementHandler.HandleMessage); err != nil {
+				log.Error(ctx, "settlement consumer stopped", "err", err)
+			}
+		}()
+
+		log.Info(ctx, "outbox publisher + settlement consumer enabled", "rabbitmq", rabbitURL)
 	} else {
-		log.Warn(ctx, "RABBITMQ_URL not set, outbox publisher disabled")
+		log.Warn(ctx, "RABBITMQ_URL not set, outbox publisher and settlement consumer disabled")
 	}
 
 	addr := ":" + getEnv("PAYMENT_GRPC_PORT", "9090")
