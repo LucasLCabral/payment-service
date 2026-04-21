@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"time"
 
-	model "github.com/LucasLCabral/payment-service/internal/payment/models"
+	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/google/uuid"
 )
 
@@ -19,31 +19,17 @@ type PaymentRepository struct {
 	DB *sql.DB
 }
 
-func (r *PaymentRepository) GetByIdempotencyKeyForUpdate(ctx context.Context, tx *sql.Tx, idempotencyKey uuid.UUID) (*model.Payment, error) {
+func (r *PaymentRepository) GetByIdempotencyKeyForUpdate(ctx context.Context, tx *sql.Tx, idempotencyKey uuid.UUID) (*payment.Payment, error) {
 	const q = `
 		SELECT id, idempotency_key, amount_cents, currency, status,
 		       payer_id, payee_id, description, decline_reason, trace_id,
 		       created_at, updated_at
 		FROM transactions WHERE idempotency_key = $1 FOR UPDATE`
 
-	p := &model.Payment{}
-	var desc, decline sql.NullString
-	err := tx.QueryRowContext(ctx, q, idempotencyKey).Scan(
-		&p.ID, &p.IdempotencyKey, &p.AmountCents, &p.Currency, &p.Status,
-		&p.PayerID, &p.PayeeID, &desc, &decline, &p.TraceID,
-		&p.CreatedAt, &p.UpdatedAt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	p.Description = desc.String
-	p.DeclineReason = decline.String
-	p.CreatedAt = p.CreatedAt.UTC()
-	p.UpdatedAt = p.UpdatedAt.UTC()
-	return p, nil
+	return scanPayment(tx.QueryRowContext(ctx, q, idempotencyKey))
 }
 
-func (r *PaymentRepository) InsertPaymentWithOutbox(ctx context.Context, tx *sql.Tx, req *model.CreatePaymentRequest, traceID uuid.UUID) (*model.Payment, error) {
+func (r *PaymentRepository) InsertPaymentWithOutbox(ctx context.Context, tx *sql.Tx, in *payment.CreatePaymentRequest, traceID uuid.UUID) (*payment.Payment, error) {
 	const insertTx = `
 		INSERT INTO transactions (
 			idempotency_key, amount_cents, currency, status,
@@ -52,15 +38,15 @@ func (r *PaymentRepository) InsertPaymentWithOutbox(ctx context.Context, tx *sql
 		RETURNING id, created_at, updated_at`
 
 	var descArg any
-	if req.Description != "" {
-		descArg = req.Description
+	if in.Description != "" {
+		descArg = in.Description
 	}
 
 	var paymentID uuid.UUID
 	var created, updated time.Time
 	if err := tx.QueryRowContext(ctx, insertTx,
-		req.IdempotencyKey, req.AmountCents, string(req.Currency),
-		req.PayerID, req.PayeeID, descArg, traceID,
+		in.IdempotencyKey, in.AmountCents, string(in.Currency),
+		in.PayerID, in.PayeeID, descArg, traceID,
 	).Scan(&paymentID, &created, &updated); err != nil {
 		return nil, err
 	}
@@ -80,31 +66,39 @@ func (r *PaymentRepository) InsertPaymentWithOutbox(ctx context.Context, tx *sql
 		return nil, err
 	}
 
-	return &model.Payment{
+	return &payment.Payment{
 		ID:             paymentID,
-		IdempotencyKey: req.IdempotencyKey,
-		AmountCents:    req.AmountCents,
-		Currency:       req.Currency,
-		Status:         model.PaymentStatusPending,
-		PayerID:        req.PayerID,
-		PayeeID:        req.PayeeID,
-		Description:    req.Description,
+		IdempotencyKey: in.IdempotencyKey,
+		AmountCents:    in.AmountCents,
+		Currency:       in.Currency,
+		Status:         payment.StatusPending,
+		PayerID:        in.PayerID,
+		PayeeID:        in.PayeeID,
+		Description:    in.Description,
 		TraceID:        traceID,
 		CreatedAt:      created.UTC(),
 		UpdatedAt:      updated.UTC(),
 	}, nil
 }
 
-func (r *PaymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.Payment, error) {
+func (r *PaymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*payment.Payment, error) {
 	const q = `
 		SELECT id, idempotency_key, amount_cents, currency, status,
 		       payer_id, payee_id, description, decline_reason, trace_id,
 		       created_at, updated_at
 		FROM transactions WHERE id = $1`
 
-	p := &model.Payment{}
+	return scanPayment(r.DB.QueryRowContext(ctx, q, id))
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanPayment(row scanner) (*payment.Payment, error) {
+	p := &payment.Payment{}
 	var desc, decline sql.NullString
-	err := r.DB.QueryRowContext(ctx, q, id).Scan(
+	err := row.Scan(
 		&p.ID, &p.IdempotencyKey, &p.AmountCents, &p.Currency, &p.Status,
 		&p.PayerID, &p.PayeeID, &desc, &decline, &p.TraceID,
 		&p.CreatedAt, &p.UpdatedAt,

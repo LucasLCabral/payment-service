@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	model "github.com/LucasLCabral/payment-service/internal/payment/models"
 	"github.com/LucasLCabral/payment-service/internal/payment/repository"
+	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 )
 
@@ -22,15 +22,15 @@ func NewPayment(tx TransactionRunner, repo repository.Payment) *Payment {
 	return &Payment{TX: tx, Repo: repo}
 }
 
-func (s *Payment) CreatePayment(ctx context.Context, req *model.CreatePaymentRequest) (*model.Payment, error) {
-	if err := req.Validate(); err != nil {
+func (s *Payment) CreatePayment(ctx context.Context, in *payment.CreatePaymentRequest) (*payment.Payment, error) {
+	if err := in.Validate(); err != nil {
 		return nil, err
 	}
 	tid := trace.GetTraceUUID(ctx)
 
-	var result *model.Payment
+	var result *payment.Payment
 	err := s.TX.WithinTransaction(ctx, func(tx *sql.Tx) error {
-		existing, err := s.Repo.GetByIdempotencyKeyForUpdate(ctx, tx, req.IdempotencyKey)
+		existing, err := s.Repo.GetByIdempotencyKeyForUpdate(ctx, tx, in.IdempotencyKey)
 		switch {
 		case err == nil:
 			result = existing
@@ -39,7 +39,7 @@ func (s *Payment) CreatePayment(ctx context.Context, req *model.CreatePaymentReq
 		default:
 			return err
 		}
-		created, err := s.Repo.InsertPaymentWithOutbox(ctx, tx, req, tid)
+		created, err := s.Repo.InsertPaymentWithOutbox(ctx, tx, in, tid)
 		if err != nil {
 			return err
 		}
@@ -52,6 +52,6 @@ func (s *Payment) CreatePayment(ctx context.Context, req *model.CreatePaymentReq
 	return result, nil
 }
 
-func (s *Payment) GetPayment(ctx context.Context, req *model.GetPaymentRequest) (*model.Payment, error) {
+func (s *Payment) GetPayment(ctx context.Context, req *payment.GetPaymentRequest) (*payment.Payment, error) {
 	return s.Repo.GetByID(ctx, req.PaymentID)
 }

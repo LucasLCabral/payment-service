@@ -3,29 +3,18 @@ package grpcsvc
 import (
 	"time"
 
-	model "github.com/LucasLCabral/payment-service/internal/payment/models"
+	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/LucasLCabral/payment-service/protog/common"
-	"github.com/LucasLCabral/payment-service/protog/payment"
+	pb "github.com/LucasLCabral/payment-service/protog/payment"
 	"github.com/google/uuid"
 )
 
-func CreatePaymentRequestFromModel(req *model.CreatePaymentRequest) *payment.CreatePaymentRequest {
-	return &payment.CreatePaymentRequest{
-		IdempotencyKey: req.IdempotencyKey.String(),
-		AmountCents:    req.AmountCents,
-		Currency:       currencyToProto(req.Currency),
-		PayerId:        req.PayerID.String(),
-		PayeeId:        req.PayeeID.String(),
-		Description:    req.Description,
-	}
-}
-
-func CreatePaymentRequestToModel(req *payment.CreatePaymentRequest) (*model.CreatePaymentRequest, error) {
+func createRequestToModel(req *pb.CreatePaymentRequest) (*payment.CreatePaymentRequest, error) {
 	cur, ok := currencyFromProto(req.GetCurrency())
 	if !ok {
-		return nil, model.ErrCurrencyRequired
+		return nil, payment.ErrCurrencyRequired
 	}
-	return model.ParseCreatePaymentRequest(
+	return payment.ParseCreatePaymentRequest(
 		req.GetIdempotencyKey(),
 		req.GetAmountCents(),
 		cur,
@@ -35,42 +24,26 @@ func CreatePaymentRequestToModel(req *payment.CreatePaymentRequest) (*model.Crea
 	)
 }
 
-func CreatePaymentResponseToPayment(resp *payment.CreatePaymentResponse) (*model.Payment, error) {
-	pid, err := uuid.Parse(resp.GetPaymentId())
-	if err != nil {
-		return nil, err
-	}
-	t, err := time.Parse(time.RFC3339, resp.GetCreatedAt())
-	if err != nil {
-		return nil, err
-	}
-	return &model.Payment{
-		ID:        pid,
-		Status:    paymentStatusFromProto(resp.GetStatus()),
-		CreatedAt: t,
-	}, nil
-}
-
-func PaymentToCreateResponse(p *model.Payment) *payment.CreatePaymentResponse {
-	return &payment.CreatePaymentResponse{
+func paymentToCreateResponse(p *payment.Payment) *pb.CreatePaymentResponse {
+	return &pb.CreatePaymentResponse{
 		PaymentId: p.ID.String(),
-		Status:    paymentStatusToProto(p.Status),
+		Status:    statusToProto(p.Status),
 		CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
-func GetPaymentRequestToModel(req *payment.GetPaymentRequest) (*model.GetPaymentRequest, error) {
+func getRequestToModel(req *pb.GetPaymentRequest) (*payment.GetPaymentRequest, error) {
 	pid, err := uuid.Parse(req.GetPaymentId())
 	if err != nil {
 		return nil, err
 	}
-	return &model.GetPaymentRequest{PaymentID: pid}, nil
+	return &payment.GetPaymentRequest{PaymentID: pid}, nil
 }
 
-func PaymentToGetResponse(p *model.Payment) *payment.GetPaymentResponse {
-	return &payment.GetPaymentResponse{
+func paymentToGetResponse(p *payment.Payment) *pb.GetPaymentResponse {
+	return &pb.GetPaymentResponse{
 		PaymentId:     p.ID.String(),
-		Status:        paymentStatusToProto(p.Status),
+		Status:        statusToProto(p.Status),
 		AmountCents:   p.AmountCents,
 		Currency:      currencyToProto(p.Currency),
 		CreatedAt:     p.CreatedAt.UTC().Format(time.RFC3339),
@@ -79,52 +52,52 @@ func PaymentToGetResponse(p *model.Payment) *payment.GetPaymentResponse {
 	}
 }
 
-func currencyToProto(c model.Currency) common.Currency {
+func currencyToProto(c payment.Currency) common.Currency {
 	switch c {
-	case model.CurrencyBRL:
+	case payment.CurrencyBRL:
 		return common.Currency_CURRENCY_BRL
-	case model.CurrencyUSD:
+	case payment.CurrencyUSD:
 		return common.Currency_CURRENCY_USD
 	default:
 		return common.Currency_CURRENCY_UNSPECIFIED
 	}
 }
 
-func currencyFromProto(c common.Currency) (model.Currency, bool) {
+func currencyFromProto(c common.Currency) (payment.Currency, bool) {
 	switch c {
 	case common.Currency_CURRENCY_BRL:
-		return model.CurrencyBRL, true
+		return payment.CurrencyBRL, true
 	case common.Currency_CURRENCY_USD:
-		return model.CurrencyUSD, true
+		return payment.CurrencyUSD, true
 	default:
 		return "", false
 	}
 }
 
-func paymentStatusFromProto(s common.PaymentStatus) model.PaymentStatus {
+func statusFromProto(s common.PaymentStatus) payment.PaymentStatus {
 	switch s {
 	case common.PaymentStatus_PAYMENT_STATUS_PENDING:
-		return model.PaymentStatusPending
+		return payment.StatusPending
 	case common.PaymentStatus_PAYMENT_STATUS_SETTLED:
-		return model.PaymentStatusSettled
+		return payment.StatusSettled
 	case common.PaymentStatus_PAYMENT_STATUS_DECLINED:
-		return model.PaymentStatusDeclined
+		return payment.StatusDeclined
 	case common.PaymentStatus_PAYMENT_STATUS_FAILED:
-		return model.PaymentStatusFailed
+		return payment.StatusFailed
 	default:
-		return model.PaymentStatusUnspecified
+		return payment.StatusUnspecified
 	}
 }
 
-func paymentStatusToProto(s model.PaymentStatus) common.PaymentStatus {
+func statusToProto(s payment.PaymentStatus) common.PaymentStatus {
 	switch s {
-	case model.PaymentStatusPending:
+	case payment.StatusPending:
 		return common.PaymentStatus_PAYMENT_STATUS_PENDING
-	case model.PaymentStatusSettled:
+	case payment.StatusSettled:
 		return common.PaymentStatus_PAYMENT_STATUS_SETTLED
-	case model.PaymentStatusDeclined:
+	case payment.StatusDeclined:
 		return common.PaymentStatus_PAYMENT_STATUS_DECLINED
-	case model.PaymentStatusFailed:
+	case payment.StatusFailed:
 		return common.PaymentStatus_PAYMENT_STATUS_FAILED
 	default:
 		return common.PaymentStatus_PAYMENT_STATUS_UNSPECIFIED
