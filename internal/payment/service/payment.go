@@ -22,29 +22,25 @@ func NewPayment(tx TransactionRunner, repo repository.Payment) *Payment {
 	return &Payment{TX: tx, Repo: repo}
 }
 
-func (s *Payment) CreatePayment(ctx context.Context, in *payment.CreatePaymentRequest) (*payment.Payment, error) {
-	if err := in.Validate(); err != nil {
+func (s *Payment) CreatePayment(ctx context.Context, req *payment.CreatePaymentRequest) (*payment.Payment, error) {
+	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 	tid := trace.GetTraceUUID(ctx)
 
 	var result *payment.Payment
 	err := s.TX.WithinTransaction(ctx, func(tx *sql.Tx) error {
-		existing, err := s.Repo.GetByIdempotencyKeyForUpdate(ctx, tx, in.IdempotencyKey)
-		switch {
-		case err == nil:
+		existing, err := s.Repo.FindByIdempotencyKey(ctx, tx, req.IdempotencyKey)
+		if err == nil {
 			result = existing
 			return nil
-		case err == sql.ErrNoRows:
-		default:
+		}
+		if err != sql.ErrNoRows {
 			return err
 		}
-		created, err := s.Repo.InsertPaymentWithOutbox(ctx, tx, in, tid)
-		if err != nil {
-			return err
-		}
-		result = created
-		return nil
+
+		result, err = s.Repo.Create(ctx, tx, req, tid)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -53,5 +49,5 @@ func (s *Payment) CreatePayment(ctx context.Context, in *payment.CreatePaymentRe
 }
 
 func (s *Payment) GetPayment(ctx context.Context, req *payment.GetPaymentRequest) (*payment.Payment, error) {
-	return s.Repo.GetByID(ctx, req.PaymentID)
+	return s.Repo.FindByID(ctx, req.PaymentID)
 }

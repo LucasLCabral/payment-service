@@ -11,15 +11,20 @@ import (
 )
 
 type outboxPayload struct {
-	Event     string `json:"event"`
-	PaymentID string `json:"payment_id"`
+	Event          string `json:"event"`
+	PaymentID      string `json:"payment_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	AmountCents    int64  `json:"amount_cents"`
+	Currency       string `json:"currency"`
+	PayerID        string `json:"payer_id"`
+	PayeeID        string `json:"payee_id"`
 }
 
 type PaymentRepository struct {
 	DB *sql.DB
 }
 
-func (r *PaymentRepository) GetByIdempotencyKeyForUpdate(ctx context.Context, tx *sql.Tx, idempotencyKey uuid.UUID) (*payment.Payment, error) {
+func (r *PaymentRepository) FindByIdempotencyKey(ctx context.Context, tx *sql.Tx, idempotencyKey uuid.UUID) (*payment.Payment, error) {
 	const q = `
 		SELECT id, idempotency_key, amount_cents, currency, status,
 		       payer_id, payee_id, description, decline_reason, trace_id,
@@ -29,7 +34,7 @@ func (r *PaymentRepository) GetByIdempotencyKeyForUpdate(ctx context.Context, tx
 	return scanPayment(tx.QueryRowContext(ctx, q, idempotencyKey))
 }
 
-func (r *PaymentRepository) InsertPaymentWithOutbox(ctx context.Context, tx *sql.Tx, in *payment.CreatePaymentRequest, traceID uuid.UUID) (*payment.Payment, error) {
+func (r *PaymentRepository) Create(ctx context.Context, tx *sql.Tx, in *payment.CreatePaymentRequest, traceID uuid.UUID) (*payment.Payment, error) {
 	const insertTx = `
 		INSERT INTO transactions (
 			idempotency_key, amount_cents, currency, status,
@@ -52,8 +57,13 @@ func (r *PaymentRepository) InsertPaymentWithOutbox(ctx context.Context, tx *sql
 	}
 
 	payload, err := json.Marshal(outboxPayload{
-		Event:     "payment.created",
-		PaymentID: paymentID.String(),
+		Event:          "payment.created",
+		PaymentID:      paymentID.String(),
+		IdempotencyKey: in.IdempotencyKey.String(),
+		AmountCents:    in.AmountCents,
+		Currency:       string(in.Currency),
+		PayerID:        in.PayerID.String(),
+		PayeeID:        in.PayeeID.String(),
 	})
 	if err != nil {
 		return nil, err
@@ -81,7 +91,7 @@ func (r *PaymentRepository) InsertPaymentWithOutbox(ctx context.Context, tx *sql
 	}, nil
 }
 
-func (r *PaymentRepository) GetByID(ctx context.Context, id uuid.UUID) (*payment.Payment, error) {
+func (r *PaymentRepository) FindByID(ctx context.Context, id uuid.UUID) (*payment.Payment, error) {
 	const q = `
 		SELECT id, idempotency_key, amount_cents, currency, status,
 		       payer_id, payee_id, description, decline_reason, trace_id,

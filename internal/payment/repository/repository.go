@@ -9,7 +9,7 @@ import (
 )
 
 type Payment interface {
-	GetByIdempotencyKeyForUpdate(ctx context.Context, tx *sql.Tx, idempotencyKey uuid.UUID) (*payment.Payment, error)
-	InsertPaymentWithOutbox(ctx context.Context, tx *sql.Tx, in *payment.CreatePaymentRequest, traceID uuid.UUID) (*payment.Payment, error)
-	GetByID(ctx context.Context, id uuid.UUID) (*payment.Payment, error)
+	Create(ctx context.Context, tx *sql.Tx, in *payment.CreatePaymentRequest, traceID uuid.UUID) (*payment.Payment, error)
+	FindByID(ctx context.Context, id uuid.UUID) (*payment.Payment, error)
+	FindByIdempotencyKey(ctx context.Context, tx *sql.Tx, key uuid.UUID) (*payment.Payment, error)
 }
