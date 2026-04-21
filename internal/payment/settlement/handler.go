@@ -9,15 +9,19 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/repository"
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
-	"github.com/google/uuid"
-	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
+	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
+
+//go:generate go run go.uber.org/mock/mockgen -destination=mocks/transaction_runner_mock.go -package=mocks . TransactionRunner
+//go:generate go run go.uber.org/mock/mockgen -destination=mocks/payment_status_notifier_mock.go -package=mocks . PaymentStatusNotifier
+//go:generate go run go.uber.org/mock/mockgen -destination=mocks/payment_repository_mock.go -package=mocks github.com/LucasLCabral/payment-service/internal/payment/repository Payment
 
 type TransactionRunner interface {
 	WithinTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error
@@ -115,4 +119,3 @@ func mapStatus(s string) payment.PaymentStatus {
 		return payment.StatusUnspecified
 	}
 }
-

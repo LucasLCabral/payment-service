@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
+//go:generate go run go.uber.org/mock/mockgen -destination=mocks/payment_service_mock.go -package=mocks . PaymentService
+
 type PaymentService interface {
 	CreatePayment(ctx context.Context, in *payment.CreatePaymentRequest) (*payment.Payment, error)
 	GetPayment(ctx context.Context, req *payment.GetPaymentRequest) (*payment.Payment, error)

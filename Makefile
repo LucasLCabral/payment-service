@@ -1,6 +1,6 @@
 # Makefile para Payment Service
 
-.PHONY: help proto protog build test docker-up docker-down docker-logs tidy deps db-reset
+.PHONY: help proto protog build test mocks docker-up docker-down docker-logs tidy deps db-reset
 
 help: ## Mostra esta mensagem de ajuda
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -21,6 +21,9 @@ build: ## Compila todos os serviços
 
 test: ## Executa os testes
 	go test -v -race ./...
+
+mocks: ## Gera mocks (go generate em pacotes com //go:generate)
+	go generate ./...
 
 tidy: ## Limpa e organiza dependências
 	go mod tidy

@@ -11,6 +11,8 @@ import (
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 )
 
+//go:generate go run go.uber.org/mock/mockgen -destination=mocks/conn_registry_mock.go -package=mocks . ConnRegistry
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
