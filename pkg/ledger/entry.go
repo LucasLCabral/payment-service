@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// Entry espelha a tabela ledger_entries.
 type Entry struct {
 	ID             uuid.UUID
 	PaymentID      uuid.UUID
