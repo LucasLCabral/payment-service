@@ -25,14 +25,10 @@ func LoggingMiddleware(log logger.Logger) func(nethttp.Handler) nethttp.Handler 
 			start := time.Now()
 
 			ctx := r.Context()
-			traceID := ""
-			sc := oteltrace.SpanFromContext(ctx).SpanContext()
-			if sc.IsValid() {
-				traceID = sc.TraceID().String()
-			} else if t := r.Header.Get(trace.XTraceIDHeader); t != "" {
-				traceID = t
+			if t := r.Header.Get(trace.XTraceIDHeader); t != "" && !oteltrace.SpanFromContext(ctx).SpanContext().IsValid() {
+				ctx = trace.WithTraceID(ctx, t)
 			}
-			ctx = trace.WithTraceID(ctx, traceID)
+			ctx = trace.EnsureTraceID(ctx)
 			r = r.WithContext(ctx)
 
 			sw := &statusWriter{ResponseWriter: w, status: nethttp.StatusOK}

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/LucasLCabral/payment-service/internal/payment/grpcsvc"
 	"github.com/LucasLCabral/payment-service/internal/payment/outbox"
@@ -14,11 +15,12 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/service"
 	"github.com/LucasLCabral/payment-service/internal/payment/settlement"
 	"github.com/LucasLCabral/payment-service/pkg/database"
-	"github.com/LucasLCabral/payment-service/pkg/grpctrace"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/otelsetup"
 	"github.com/LucasLCabral/payment-service/pkg/messaging"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	pb "github.com/LucasLCabral/payment-service/protog/payment"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 )
 
@@ -28,6 +30,19 @@ func main() {
 
 	log := logger.New("payment-service")
 	ctx = trace.EnsureTraceID(ctx)
+
+	otelShutdown, err := otelsetup.Init(ctx, "payment-service")
+	if err != nil {
+		log.Error(ctx, "otel setup failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownOtelCtx, shutdownOtelCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownOtelCancel()
+		if err := otelShutdown(shutdownOtelCtx); err != nil {
+			log.Error(context.Background(), "otel shutdown", "err", err)
+		}
+	}()
 
 	port, err := strconv.Atoi(getEnv("PAYMENT_DB_PORT", "5432"))
 	if err != nil {
@@ -102,7 +117,7 @@ func main() {
 	}
 
 	srv := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(grpctrace.UnaryServerInterceptor()),
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 	)
 	pb.RegisterPaymentServiceServer(srv, &grpcsvc.Server{Svc: svc})
 
