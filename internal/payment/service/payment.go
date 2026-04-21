@@ -45,6 +45,7 @@ func (s *Payment) CreatePayment(ctx context.Context, req *payment.CreatePaymentR
 	if err != nil {
 		return nil, err
 	}
+	
 	return result, nil
 }
 
