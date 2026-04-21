@@ -47,6 +47,16 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: PAYMENT_GRPC_ADDR
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: OTEL_EXPORTER_OTLP_INSECURE
 ---
 apiVersion: v1
 kind: Service

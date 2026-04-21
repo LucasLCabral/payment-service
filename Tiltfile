@@ -66,6 +66,7 @@ k8s_yaml([
     './deployments/k8s/postgres-payment.yaml',
     './deployments/k8s/postgres-ledger.yaml',
     './deployments/k8s/rabbitmq.yaml',
+    './deployments/k8s/jaeger.yaml',
     './deployments/k8s/payment-service.yaml',
     './deployments/k8s/ledger-service.yaml',
     './deployments/k8s/api-gateway.yaml',
@@ -76,6 +77,7 @@ k8s_yaml([
 k8s_resource('postgres-payment', labels=['infra'], port_forwards='5432:5432')
 k8s_resource('postgres-ledger', labels=['infra'], port_forwards='5433:5432')
 k8s_resource('rabbitmq', labels=['infra'], port_forwards=['5672:5672', '15672:15672'])
+k8s_resource('jaeger', labels=['infra'], port_forwards=['16686:16686', '4317:4317'])
 
 k8s_resource('payment-service', labels=['app'],
     resource_deps=['postgres-payment', 'rabbitmq'],
@@ -95,12 +97,13 @@ print("""
 │  Payment Service - K8s Dev Environment          │
 ├─────────────────────────────────────────────────┤
 │  Services:                                      │
-│    • API Gateway:       http://localhost:8080    │
-│    • Payment Service:   localhost:9090 (gRPC)    │
+│    • API Gateway:       http://localhost:8080   │
+│    • Payment Service:   localhost:9090 (gRPC)   │
 │                                                 │
 │  Infrastructure:                                │
-│    • RabbitMQ UI:       http://localhost:15672   │
-│    • PostgreSQL Payment: localhost:5432          │
-│    • PostgreSQL Ledger:  localhost:5433          │
+│    • RabbitMQ UI:       http://localhost:15672  │
+│    • Jaeger UI:         http://localhost:16686  │
+│    • PostgreSQL Payment: localhost:5432         │
+│    • PostgreSQL Ledger:  localhost:5433         │
 └─────────────────────────────────────────────────┘
 """)

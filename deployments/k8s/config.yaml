@@ -8,3 +8,5 @@ data:
   PAYMENT_GRPC_PORT: "9090"
   PAYMENT_GRPC_ADDR: "payment-service:9090"
   DB_SSLMODE: "disable"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+  OTEL_EXPORTER_OTLP_INSECURE: "true"

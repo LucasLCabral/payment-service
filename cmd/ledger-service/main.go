@@ -6,12 +6,14 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/LucasLCabral/payment-service/internal/ledger"
 	ledgerpostgres "github.com/LucasLCabral/payment-service/internal/ledger/repository/postgres"
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	"github.com/LucasLCabral/payment-service/pkg/messaging"
+	"github.com/LucasLCabral/payment-service/pkg/otelsetup"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 )
 
@@ -21,6 +23,19 @@ func main() {
 
 	log := logger.New("ledger-service")
 	ctx = trace.EnsureTraceID(ctx)
+
+	otelShutdown, err := otelsetup.Init(ctx, "ledger-service")
+	if err != nil {
+		log.Error(ctx, "otel setup failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownOtelCtx, shutdownOtelCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownOtelCancel()
+		if err := otelShutdown(shutdownOtelCtx); err != nil {
+			log.Error(context.Background(), "otel shutdown", "err", err)
+		}
+	}()
 
 	port, err := strconv.Atoi(getEnv("LEDGER_DB_PORT", "5433"))
 	if err != nil {
