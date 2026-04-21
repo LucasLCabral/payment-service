@@ -74,7 +74,7 @@ func main() {
 
 	var created struct {
 		PaymentID string `json:"payment_id"`
-		Status      string `json:"status"`
+		Status    string `json:"status"`
 	}
 	if err := json.Unmarshal(respBody, &created); err != nil {
 		log.Fatalf("parse response: %v body %s", err, string(respBody))
