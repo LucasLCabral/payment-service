@@ -1,6 +1,6 @@
--- Payment DB: schema inicial (transactions, outbox, audit_log)
+-- Payment DB: initial schema (transactions, outbox, audit_log)
 
--- Transações (dinheiro em centavos, IDs UUID)
+-- Transactions (money in cents, UUID IDs)
 CREATE TABLE transactions (
   id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   idempotency_key  UUID        NOT NULL UNIQUE,
@@ -20,7 +20,7 @@ CREATE TABLE transactions (
 CREATE INDEX idx_transactions_status   ON transactions(status);
 CREATE INDEX idx_transactions_payer_id ON transactions(payer_id);
 
--- Outbox transacional (publisher faz polling em PENDING)
+-- Outbox transactional (publisher polls in PENDING)
 CREATE TABLE outbox (
   id             UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
   aggregate_id   UUID         NOT NULL,
@@ -38,7 +38,7 @@ CREATE INDEX idx_outbox_status_created
   ON outbox(status, created_at)
   WHERE status = 'PENDING';
 
--- Auditoria append-only
+-- Audit append-only
 CREATE TABLE audit_log (
   id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_type  VARCHAR(50) NOT NULL,
