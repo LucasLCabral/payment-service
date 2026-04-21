@@ -1,4 +1,5 @@
 // Cliente de teste: POST /payments e em seguida abre WebSocket em /ws até Ctrl+C.
+// Simulador com vários atores: go run ./client/loadclients (ver client/loadclients/main.go).
 package main
 
 import (
