@@ -10,7 +10,7 @@ type contextKey string
 
 const (
 	TraceIDKey contextKey = "trace_id"
-	
+
 	XTraceIDHeader = "x-trace-id"
 )
 
@@ -34,4 +34,13 @@ func EnsureTraceID(ctx context.Context) context.Context {
 		return WithTraceID(ctx, traceID)
 	}
 	return WithTraceID(ctx, NewTraceID())
+}
+
+func GetTraceUUID(ctx context.Context) uuid.UUID {
+	s := GetTraceID(ctx)
+	id, err := uuid.Parse(s)
+	if err == nil {
+		return id
+	}
+	return uuid.New()
 }
