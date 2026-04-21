@@ -13,7 +13,9 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/ws"
 	"github.com/LucasLCabral/payment-service/pkg/grpctrace"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/otelsetup"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -24,6 +26,19 @@ func main() {
 
 	log := logger.New("api-gateway")
 	ctx = trace.EnsureTraceID(ctx)
+
+	otelShutdown, err := otelsetup.Init(ctx, "api-gateway")
+	if err != nil {
+		log.Error(ctx, "otel setup failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownOtelCtx, shutdownOtelCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownOtelCancel()
+		if err := otelShutdown(shutdownOtelCtx); err != nil {
+			log.Error(context.Background(), "otel shutdown", "err", err)
+		}
+	}()
 
 	paymentAddr := getEnv("PAYMENT_GRPC_ADDR", "localhost:9090")
 	var pay httpapi.PaymentService
@@ -48,7 +63,8 @@ func main() {
 	mux.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
 	mux.Handle("GET /ws", &ws.Handler{Reg: reg, Log: log})
 
-	handler := httpapi.LoggingMiddleware(log)(mux)
+	logged := httpapi.LoggingMiddleware(log)(mux)
+	handler := otelhttp.NewHandler(logged, "api-gateway")
 
 	httpAddr := ":" + getEnv("API_GATEWAY_PORT", "8080")
 	srv := &http.Server{
