@@ -66,6 +66,7 @@ k8s_yaml([
     './deployments/k8s/postgres-payment.yaml',
     './deployments/k8s/postgres-ledger.yaml',
     './deployments/k8s/rabbitmq.yaml',
+    './deployments/k8s/redis.yaml',
     './deployments/k8s/jaeger.yaml',
     './deployments/k8s/payment-service.yaml',
     './deployments/k8s/ledger-service.yaml',
@@ -77,17 +78,18 @@ k8s_yaml([
 k8s_resource('postgres-payment', labels=['infra'], port_forwards='5432:5432')
 k8s_resource('postgres-ledger', labels=['infra'], port_forwards='5433:5432')
 k8s_resource('rabbitmq', labels=['infra'], port_forwards=['5672:5672', '15672:15672'])
+k8s_resource('redis', labels=['infra'], port_forwards='6379:6379')
 k8s_resource('jaeger', labels=['infra'], port_forwards=['16686:16686', '4317:4317'])
 
 k8s_resource('payment-service', labels=['app'],
-    resource_deps=['postgres-payment', 'rabbitmq'],
+    resource_deps=['postgres-payment', 'rabbitmq', 'redis'],
     port_forwards='9090:9090')
 
 k8s_resource('ledger-service', labels=['app'],
     resource_deps=['postgres-ledger', 'rabbitmq'])
 
 k8s_resource('api-gateway', labels=['app'],
-    resource_deps=['payment-service'],
+    resource_deps=['payment-service', 'redis'],
     port_forwards='8080:8080')
 
 # ── Status ───────────────────────────────────────

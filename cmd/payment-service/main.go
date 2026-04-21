@@ -16,6 +16,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/settlement"
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/notify"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/messaging"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
@@ -96,7 +97,19 @@ func main() {
 		}
 		defer cons.Close()
 
-		settlementHandler := settlement.NewHandler(txRunner, repo, log)
+		var notifier settlement.PaymentStatusNotifier
+		if redisURL := getEnv("REDIS_URL", ""); redisURL != "" {
+			rdb, err := notify.ConnectRedis(ctx, redisURL)
+			if err != nil {
+				log.Warn(ctx, "redis connection failed, settlement will not push WS updates", "err", err)
+			} else {
+				defer rdb.Close()
+				notifier = notify.NewRedisPublisher(rdb)
+				log.Info(ctx, "redis publisher enabled for payment status", "addr", redisURL)
+			}
+		}
+
+		settlementHandler := settlement.NewHandler(txRunner, repo, log, notifier)
 		go func() {
 			log.Info(ctx, "consuming settlement queue", "queue", settlement.Queue)
 			if err := cons.Consume(ctx, settlement.Queue, settlementHandler.HandleMessage); err != nil {

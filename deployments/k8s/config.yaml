@@ -10,3 +10,4 @@ data:
   DB_SSLMODE: "disable"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
   OTEL_EXPORTER_OTLP_INSECURE: "true"
+  REDIS_URL: "redis://redis:6379/0"

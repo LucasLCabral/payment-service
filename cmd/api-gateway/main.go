@@ -12,6 +12,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/payment"
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/ws"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/notify"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -21,11 +22,11 @@ import (
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	appCtx, cancelApp := context.WithCancel(context.Background())
+	defer cancelApp()
 
 	log := logger.New("api-gateway")
-	ctx = trace.EnsureTraceID(ctx)
+	ctx := trace.EnsureTraceID(appCtx)
 
 	otelShutdown, err := telemetry.Init(ctx, "api-gateway")
 	if err != nil {
@@ -54,7 +55,18 @@ func main() {
 		pay = payment.New(grpcConn)
 	}
 
-	reg := ws.NewRegistry()
+	reg := ws.NewRegistry(log)
+
+	if redisURL := getEnv("REDIS_URL", ""); redisURL != "" {
+		rdb, err := notify.ConnectRedis(appCtx, redisURL)
+		if err != nil {
+			log.Warn(ctx, "redis connect failed, websocket will not receive settlement pushes", "err", err)
+		} else {
+			defer rdb.Close()
+			go ws.SubscribePaymentStatus(appCtx, rdb, reg, log)
+			log.Info(ctx, "redis subscriber started", "addr", redisURL)
+		}
+	}
 
 	paymentsHandler := httpapi.NewPaymentsHandler(log, pay)
 
@@ -89,6 +101,7 @@ func main() {
 	<-sigChan
 
 	log.Info(ctx, "shutdown signal received")
+	cancelApp()
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

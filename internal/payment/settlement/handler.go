@@ -9,6 +9,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/repository"
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/google/uuid"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
@@ -22,14 +23,19 @@ type TransactionRunner interface {
 	WithinTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error
 }
 
-type Handler struct {
-	tx   TransactionRunner
-	repo repository.Payment
-	log  logger.Logger
+type PaymentStatusNotifier interface {
+	NotifyPaymentStatus(ctx context.Context, paymentID uuid.UUID, status payment.PaymentStatus, declineReason string) error
 }
 
-func NewHandler(tx TransactionRunner, repo repository.Payment, log logger.Logger) *Handler {
-	return &Handler{tx: tx, repo: repo, log: log}
+type Handler struct {
+	tx       TransactionRunner
+	repo     repository.Payment
+	log      logger.Logger
+	notifier PaymentStatusNotifier
+}
+
+func NewHandler(tx TransactionRunner, repo repository.Payment, log logger.Logger, notifier PaymentStatusNotifier) *Handler {
+	return &Handler{tx: tx, repo: repo, log: log, notifier: notifier}
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
@@ -90,6 +96,11 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 	}
 
 	h.log.Info(ctx, "settlement applied", "payment_id", evt.PaymentID, "new_status", newStatus)
+	if h.notifier != nil {
+		if err := h.notifier.NotifyPaymentStatus(ctx, evt.PaymentID, newStatus, evt.DeclineReason); err != nil {
+			h.log.Warn(ctx, "payment status notify failed", "payment_id", evt.PaymentID, "err", err)
+		}
+	}
 	span.SetStatus(codes.Ok, "")
 	return nil
 }

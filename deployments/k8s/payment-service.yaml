@@ -81,6 +81,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: OTEL_EXPORTER_OTLP_INSECURE
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: REDIS_URL
 ---
 apiVersion: v1
 kind: Service
