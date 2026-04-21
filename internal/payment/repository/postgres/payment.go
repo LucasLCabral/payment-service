@@ -6,19 +6,12 @@ import (
 	"encoding/json"
 	"time"
 
+	paymentoutbox "github.com/LucasLCabral/payment-service/internal/payment/outbox"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
-
-type outboxPayload struct {
-	Event          string `json:"event"`
-	PaymentID      string `json:"payment_id"`
-	IdempotencyKey string `json:"idempotency_key"`
-	AmountCents    int64  `json:"amount_cents"`
-	Currency       string `json:"currency"`
-	PayerID        string `json:"payer_id"`
-	PayeeID        string `json:"payee_id"`
-}
 
 type PaymentRepository struct {
 	DB *sql.DB
@@ -56,7 +49,9 @@ func (r *PaymentRepository) Create(ctx context.Context, tx *sql.Tx, in *payment.
 		return nil, err
 	}
 
-	payload, err := json.Marshal(outboxPayload{
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	op := paymentoutbox.PaymentCreatedPayload{
 		Event:          "payment.created",
 		PaymentID:      paymentID.String(),
 		IdempotencyKey: in.IdempotencyKey.String(),
@@ -64,7 +59,10 @@ func (r *PaymentRepository) Create(ctx context.Context, tx *sql.Tx, in *payment.
 		Currency:       string(in.Currency),
 		PayerID:        in.PayerID.String(),
 		PayeeID:        in.PayeeID.String(),
-	})
+		Traceparent:    carrier["traceparent"],
+		Tracestate:     carrier["tracestate"],
+	}
+	payload, err := json.Marshal(op)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
+	"github.com/LucasLCabral/payment-service/pkg/otelamqp"
 	"github.com/google/uuid"
 )
 
@@ -33,6 +34,7 @@ func (s *Service) publishSettlement(ctx context.Context, paymentID uuid.UUID, de
 	headers := map[string]interface{}{
 		"x-trace-id": traceID.String(),
 	}
+	otelamqp.InjectHeaders(ctx, headers)
 
 	if err := s.pub.Publish(ctx, settledExchange, routingKey, payload, headers); err != nil {
 		s.log.Error(ctx, "settlement publish failed", "payment_id", paymentID, "routing_key", routingKey, "err", err)

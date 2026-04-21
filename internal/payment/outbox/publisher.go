@@ -104,8 +104,17 @@ func (p *Publisher) poll(ctx context.Context) error {
 			traceID = uuid.New().String()
 		}
 
-		headers := map[string]interface{}{
+		var payload PaymentCreatedPayload
+		_ = json.Unmarshal(row.Payload, &payload)
+
+		headers := map[string]any{
 			"x-trace-id": traceID,
+		}
+		if payload.Traceparent != "" {
+			headers["traceparent"] = payload.Traceparent
+		}
+		if payload.Tracestate != "" {
+			headers["tracestate"] = payload.Tracestate
 		}
 
 		if err := p.publishWithRetry(ctx, row, headers); err != nil {

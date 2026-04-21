@@ -9,9 +9,13 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/repository"
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/otelamqp"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 type TransactionRunner interface {
@@ -29,19 +33,32 @@ func NewHandler(tx TransactionRunner, repo repository.Payment, log logger.Logger
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
+	ctx = otelamqp.ExtractContext(ctx, msg.Headers)
+
+	tracer := otel.Tracer("payment-service")
+	ctx, span := tracer.Start(ctx, "settlement consume",
+		oteltrace.WithSpanKind(oteltrace.SpanKindConsumer),
+	)
+	defer span.End()
+
 	traceID := trace.TraceIDFromAMQPHeaders(msg.Headers)
 	ctx = trace.WithTraceID(ctx, traceID.String())
 
 	var evt pkgledger.SettlementResult
 	if err := json.Unmarshal(msg.Body, &evt); err != nil {
 		h.log.Error(ctx, "invalid settlement payload", "err", err, "body", string(msg.Body))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 
 	newStatus := mapStatus(evt.Status)
 	if newStatus == payment.StatusUnspecified {
+		err := fmt.Errorf("unknown settlement status: %s", evt.Status)
 		h.log.Error(ctx, "unknown settlement status", "status", evt.Status, "payment_id", evt.PaymentID)
-		return fmt.Errorf("unknown settlement status: %s", evt.Status)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
 	}
 
 	h.log.Info(ctx, "processing settlement",
@@ -66,10 +83,13 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 	})
 	if err != nil {
 		h.log.Error(ctx, "settlement processing failed", "payment_id", evt.PaymentID, "err", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
 	h.log.Info(ctx, "settlement applied", "payment_id", evt.PaymentID, "new_status", newStatus)
+	span.SetStatus(codes.Ok, "")
 	return nil
 }
 
