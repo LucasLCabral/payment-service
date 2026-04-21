@@ -70,18 +70,19 @@ func main() {
 
 	paymentsHandler := httpapi.NewPaymentsHandler(log, pay)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("POST /payments", paymentsHandler.Create)
-	mux.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
-	mux.Handle("GET /ws", &ws.Handler{Reg: reg, Log: log})
+	rest := http.NewServeMux()
+	rest.HandleFunc("POST /payments", paymentsHandler.Create)
+	rest.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
+	otelREST := otelhttp.NewHandler(httpapi.LoggingMiddleware(log)(rest), "api-gateway")
 
-	logged := httpapi.LoggingMiddleware(log)(mux)
-	handler := otelhttp.NewHandler(logged, "api-gateway")
+	root := http.NewServeMux()
+	root.Handle("GET /ws", &ws.Handler{Reg: reg, Log: log})
+	root.Handle("/", otelREST)
 
 	httpAddr := ":" + getEnv("API_GATEWAY_PORT", "8080")
 	srv := &http.Server{
 		Addr:    httpAddr,
-		Handler: handler,
+		Handler: root,
 	}
 
 	go func() {
