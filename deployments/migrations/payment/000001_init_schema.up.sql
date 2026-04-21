@@ -55,5 +55,3 @@ CREATE TABLE audit_log (
 CREATE INDEX idx_audit_entity ON audit_log(entity_type, entity_id);
 CREATE INDEX idx_audit_trace  ON audit_log(trace_id);
 
-ALTER TABLE audit_log OWNER TO postgres;
-GRANT SELECT, INSERT ON audit_log TO payment_user;
