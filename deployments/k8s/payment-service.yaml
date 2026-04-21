@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      containers:
+        - name: payment-service
+          image: payment-service-image
+          ports:
+            - containerPort: 9090
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          env:
+            - name: PAYMENT_GRPC_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: PAYMENT_GRPC_PORT
+            - name: PAYMENT_DB_HOST
+              value: postgres-payment
+            - name: PAYMENT_DB_PORT
+              value: "5432"
+            - name: PAYMENT_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-payment-credentials
+                  key: username
+            - name: PAYMENT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-payment-credentials
+                  key: password
+            - name: PAYMENT_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-payment-credentials
+                  key: database
+            - name: PAYMENT_DB_SSLMODE
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: DB_SSLMODE
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: uri
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - port: 9090
+      targetPort: 9090
+  type: ClusterIP

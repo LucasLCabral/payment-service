@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  ENVIRONMENT: "development"
+  API_GATEWAY_PORT: "8080"
+  PAYMENT_GRPC_PORT: "9090"
+  PAYMENT_GRPC_ADDR: "payment-service:9090"
+  DB_SSLMODE: "disable"
