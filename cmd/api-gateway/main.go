@@ -26,7 +26,7 @@ func main() {
 	ctx = trace.EnsureTraceID(ctx)
 
 	paymentAddr := getEnv("PAYMENT_GRPC_ADDR", "localhost:9090")
-	var pay httpapi.PaymentCreator
+	var pay httpapi.PaymentService
 	grpcConn, err := grpc.NewClient(
 		paymentAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -41,8 +41,11 @@ func main() {
 
 	reg := ws.NewRegistry()
 
+	paymentsHandler := httpapi.NewPaymentsHandler(log, pay)
+
 	mux := http.NewServeMux()
-	mux.Handle("POST /payments", httpapi.NewPaymentsHandler(log, pay))
+	mux.HandleFunc("POST /payments", paymentsHandler.Create)
+	mux.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
 	mux.Handle("GET /ws", &ws.Handler{Reg: reg, Log: log})
 
 	httpAddr := ":" + getEnv("API_GATEWAY_PORT", "8080")
