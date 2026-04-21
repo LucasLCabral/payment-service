@@ -8,7 +8,6 @@ import (
 
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
-	"github.com/LucasLCabral/payment-service/pkg/trace"
 	"github.com/google/uuid"
 )
 
@@ -28,11 +27,6 @@ func NewPaymentsHandler(log logger.Logger, p PaymentService) *PaymentsHandler {
 
 func (h *PaymentsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if t := r.Header.Get(trace.XTraceIDHeader); t != "" {
-		ctx = trace.WithTraceID(ctx, t)
-	} else {
-		ctx = trace.EnsureTraceID(ctx)
-	}
 
 	if h.payment == nil {
 		writeError(w, ctx, h.log, http.StatusServiceUnavailable, "payment service unavailable")
@@ -91,11 +85,6 @@ func (h *PaymentsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *PaymentsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if t := r.Header.Get(trace.XTraceIDHeader); t != "" {
-		ctx = trace.WithTraceID(ctx, t)
-	} else {
-		ctx = trace.EnsureTraceID(ctx)
-	}
 
 	if h.payment == nil {
 		writeError(w, ctx, h.log, http.StatusServiceUnavailable, "payment service unavailable")

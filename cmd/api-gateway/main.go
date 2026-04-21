@@ -48,10 +48,12 @@ func main() {
 	mux.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
 	mux.Handle("GET /ws", &ws.Handler{Reg: reg, Log: log})
 
+	handler := httpapi.LoggingMiddleware(log)(mux)
+
 	httpAddr := ":" + getEnv("API_GATEWAY_PORT", "8080")
 	srv := &http.Server{
 		Addr:    httpAddr,
-		Handler: mux,
+		Handler: handler,
 	}
 
 	go func() {
