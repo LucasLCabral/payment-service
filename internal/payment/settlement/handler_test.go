@@ -54,7 +54,7 @@ func TestHandler_HandleMessage(t *testing.T) {
 		name         string
 		body         []byte
 		withNotifier bool
-		setup        func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, n *stmocks.MockPaymentStatusNotifier)
+		setup        func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier)
 		wantErr      bool
 		errSubstr    string
 	}{
@@ -75,7 +75,7 @@ func TestHandler_HandleMessage(t *testing.T) {
 		{
 			name: "tx failed",
 			body: mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, n *stmocks.MockPaymentStatusNotifier) {
+			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
 				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).Return(errors.New("begin failed"))
 			},
 			wantErr:   true,
@@ -84,7 +84,7 @@ func TestHandler_HandleMessage(t *testing.T) {
 		{
 			name: "update failed",
 			body: mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, n *stmocks.MockPaymentStatusNotifier) {
+			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
 				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
 					func(ctx context.Context, fn func(*sql.Tx) error) error {
 						return fn(nil)
@@ -97,13 +97,13 @@ func TestHandler_HandleMessage(t *testing.T) {
 		{
 			name: "success without notifier",
 			body: mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, n *stmocks.MockPaymentStatusNotifier) {
+			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
 				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
 					func(ctx context.Context, fn func(*sql.Tx) error) error {
 						return fn(nil)
 					})
 				repo.EXPECT().UpdateStatus(gomock.Any(), nil, payID, payment.StatusSettled, "").Return(nil)
-				repo.EXPECT().InsertAuditLog(gomock.Any(), nil, gomock.Any()).Return(nil)
+				audit.EXPECT().Insert(gomock.Any(), nil, gomock.Any()).Return(nil)
 			},
 			wantErr: false,
 		},
@@ -111,13 +111,13 @@ func TestHandler_HandleMessage(t *testing.T) {
 			name:         "notifier error still ok",
 			body:         mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "DECLINED", DeclineReason: "nsf"}),
 			withNotifier: true,
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, n *stmocks.MockPaymentStatusNotifier) {
+			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
 				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
 					func(ctx context.Context, fn func(*sql.Tx) error) error {
 						return fn(nil)
 					})
 				repo.EXPECT().UpdateStatus(gomock.Any(), nil, payID, payment.StatusDeclined, "nsf").Return(nil)
-				repo.EXPECT().InsertAuditLog(gomock.Any(), nil, gomock.Any()).Return(nil)
+				audit.EXPECT().Insert(gomock.Any(), nil, gomock.Any()).Return(nil)
 				n.EXPECT().NotifyPaymentStatus(gomock.Any(), payID, payment.StatusDeclined, "nsf").Return(errors.New("redis down"))
 			},
 			wantErr: false,
@@ -126,13 +126,13 @@ func TestHandler_HandleMessage(t *testing.T) {
 			name:         "notifier success",
 			body:         mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
 			withNotifier: true,
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, n *stmocks.MockPaymentStatusNotifier) {
+			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
 				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
 					func(ctx context.Context, fn func(*sql.Tx) error) error {
 						return fn(nil)
 					})
 				repo.EXPECT().UpdateStatus(gomock.Any(), nil, payID, payment.StatusSettled, "").Return(nil)
-				repo.EXPECT().InsertAuditLog(gomock.Any(), nil, gomock.Any()).Return(nil)
+				audit.EXPECT().Insert(gomock.Any(), nil, gomock.Any()).Return(nil)
 				n.EXPECT().NotifyPaymentStatus(gomock.Any(), payID, payment.StatusSettled, "").Return(nil)
 			},
 			wantErr: false,
@@ -146,10 +146,11 @@ func TestHandler_HandleMessage(t *testing.T) {
 
 			mTx := stmocks.NewMockTransactionRunner(ctrl)
 			mRepo := stmocks.NewMockPayment(ctrl)
+			mAudit := stmocks.NewMockAudit(ctrl)
 			mNotifier := stmocks.NewMockPaymentStatusNotifier(ctrl)
 
 			if tt.setup != nil {
-				tt.setup(mTx, mRepo, mNotifier)
+				tt.setup(mTx, mRepo, mAudit, mNotifier)
 			}
 
 			var notifier PaymentStatusNotifier
@@ -157,7 +158,7 @@ func TestHandler_HandleMessage(t *testing.T) {
 				notifier = mNotifier
 			}
 
-			h := NewHandler(mTx, mRepo, nopLog{}, notifier)
+			h := NewHandler(mTx, mRepo, mAudit, nopLog{}, notifier)
 			msg := amqp.Delivery{Body: tt.body, Headers: headers}
 			err := h.HandleMessage(context.Background(), msg)
 

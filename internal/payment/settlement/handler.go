@@ -23,6 +23,7 @@ import (
 //go:generate go run go.uber.org/mock/mockgen -destination=mocks/transaction_runner_mock.go -package=mocks . TransactionRunner
 //go:generate go run go.uber.org/mock/mockgen -destination=mocks/payment_status_notifier_mock.go -package=mocks . PaymentStatusNotifier
 //go:generate go run go.uber.org/mock/mockgen -destination=mocks/payment_repository_mock.go -package=mocks github.com/LucasLCabral/payment-service/internal/payment/repository Payment
+//go:generate go run go.uber.org/mock/mockgen -destination=mocks/audit_repository_mock.go -package=mocks github.com/LucasLCabral/payment-service/internal/payment/repository Audit
 
 type TransactionRunner interface {
 	WithinTransaction(ctx context.Context, fn func(tx *sql.Tx) error) error
@@ -35,12 +36,13 @@ type PaymentStatusNotifier interface {
 type Handler struct {
 	tx       TransactionRunner
 	repo     repository.Payment
+	audit    repository.Audit
 	log      logger.Logger
 	notifier PaymentStatusNotifier
 }
 
-func NewHandler(tx TransactionRunner, repo repository.Payment, log logger.Logger, notifier PaymentStatusNotifier) *Handler {
-	return &Handler{tx: tx, repo: repo, log: log, notifier: notifier}
+func NewHandler(tx TransactionRunner, repo repository.Payment, audit repository.Audit, log logger.Logger, notifier PaymentStatusNotifier) *Handler {
+	return &Handler{tx: tx, repo: repo, audit: audit, log: log, notifier: notifier}
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
@@ -83,7 +85,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 			return fmt.Errorf("update status: %w", err)
 		}
 
-		return h.repo.InsertAuditLog(ctx, tx, &payment.AuditEntry{
+		return h.audit.Insert(ctx, tx, &payment.AuditEntry{
 			EntityType: "payment",
 			EntityID:   evt.PaymentID,
 			Action:     "settlement." + evt.Status,

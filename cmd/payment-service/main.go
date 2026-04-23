@@ -66,6 +66,7 @@ func main() {
 	defer db.Close()
 
 	repo := &postgres.PaymentRepository{DB: db}
+	audit := &postgres.AuditRepository{DB: db}
 	txRunner := database.NewTransactor(db)
 	svc := service.NewPayment(txRunner, repo)
 
@@ -102,7 +103,7 @@ func main() {
 			}
 		}
 
-		settlementHandler := settlement.NewHandler(txRunner, repo, log, notifier)
+		settlementHandler := settlement.NewHandler(txRunner, repo, audit, log, notifier)
 		go messaging.RunConsumer(ctx, messaging.Config{URL: rabbitURL}, settlement.Queue, log, settlementHandler.HandleMessage)
 
 		log.Info(ctx, "outbox publisher + settlement consumer enabled", "rabbitmq", rabbitURL)

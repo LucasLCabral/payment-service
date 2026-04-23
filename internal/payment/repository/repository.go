@@ -13,5 +13,8 @@ type Payment interface {
 	FindByID(ctx context.Context, id uuid.UUID) (*payment.Payment, error)
 	FindByIdempotencyKey(ctx context.Context, tx *sql.Tx, key uuid.UUID) (*payment.Payment, error)
 	UpdateStatus(ctx context.Context, tx *sql.Tx, id uuid.UUID, status payment.PaymentStatus, declineReason string) error
-	InsertAuditLog(ctx context.Context, tx *sql.Tx, entry *payment.AuditEntry) error
+}
+
+type Audit interface {
+	Insert(ctx context.Context, tx *sql.Tx, entry *payment.AuditEntry) error
 }

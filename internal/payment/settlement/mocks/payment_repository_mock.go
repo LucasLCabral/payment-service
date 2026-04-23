@@ -88,20 +88,6 @@ func (mr *MockPaymentMockRecorder) FindByIdempotencyKey(ctx, tx, key any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByIdempotencyKey", reflect.TypeOf((*MockPayment)(nil).FindByIdempotencyKey), ctx, tx, key)
 }
 
-// InsertAuditLog mocks base method.
-func (m *MockPayment) InsertAuditLog(ctx context.Context, tx *sql.Tx, entry *payment.AuditEntry) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertAuditLog", ctx, tx, entry)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// InsertAuditLog indicates an expected call of InsertAuditLog.
-func (mr *MockPaymentMockRecorder) InsertAuditLog(ctx, tx, entry any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertAuditLog", reflect.TypeOf((*MockPayment)(nil).InsertAuditLog), ctx, tx, entry)
-}
-
 // UpdateStatus mocks base method.
 func (m *MockPayment) UpdateStatus(ctx context.Context, tx *sql.Tx, id uuid.UUID, status payment.PaymentStatus, declineReason string) error {
 	m.ctrl.T.Helper()

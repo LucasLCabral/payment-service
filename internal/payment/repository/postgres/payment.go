@@ -125,18 +125,6 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, tx *sql.Tx, id uui
 	return nil
 }
 
-func (r *PaymentRepository) InsertAuditLog(ctx context.Context, tx *sql.Tx, e *payment.AuditEntry) error {
-	const q = `
-		INSERT INTO audit_log (entity_type, entity_id, action, old_status, new_status, trace_id, actor)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`
-
-	_, err := tx.ExecContext(ctx, q,
-		e.EntityType, e.EntityID, e.Action,
-		string(e.OldStatus), string(e.NewStatus), e.TraceID, e.Actor,
-	)
-	return err
-}
-
 type scanner interface {
 	Scan(dest ...any) error
 }
