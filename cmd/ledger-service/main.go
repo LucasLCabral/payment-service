@@ -71,24 +71,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	cons, err := messaging.NewConsumer(ctx, messaging.Config{URL: rabbitURL})
-	if err != nil {
-		log.Error(ctx, "rabbitmq consumer connection failed", "err", err)
-		os.Exit(1)
-	}
-	defer cons.Close()
-
 	repo := &ledgerpostgres.Repository{DB: db}
 	tx := database.NewTransactor(db)
 	svc := ledger.NewService(tx, repo, pub, log)
 	handler := ledger.NewHandler(svc, log)
 
-	go func() {
-		log.Info(ctx, "consuming queue", "queue", ledger.Queue)
-		if err := cons.Consume(ctx, ledger.Queue, handler.HandleMessage); err != nil {
-			log.Error(ctx, "consumer stopped", "err", err)
-		}
-	}()
+	go messaging.RunConsumer(ctx, messaging.Config{URL: rabbitURL}, ledger.Queue, log, handler.HandleMessage)
 
 	log.Info(ctx, "ledger-service up",
 		"rabbitmq", rabbitURL,

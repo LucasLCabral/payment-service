@@ -9,6 +9,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/repository"
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/messaging"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
@@ -59,7 +60,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 		h.log.Error(ctx, "invalid settlement payload", "err", err, "body", string(msg.Body))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("unmarshal: %w", err)
+		return messaging.Permanent(fmt.Errorf("unmarshal: %w", err))
 	}
 	telemetry.AnnotatePaymentID(ctx, evt.PaymentID.String())
 
@@ -69,7 +70,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 		h.log.Error(ctx, "unknown settlement status", "status", evt.Status, "payment_id", evt.PaymentID)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return err
+		return messaging.Permanent(err)
 	}
 
 	h.log.Info(ctx, "processing settlement",

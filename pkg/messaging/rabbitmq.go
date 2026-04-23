@@ -3,7 +3,9 @@ package messaging
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/LucasLCabral/payment-service/pkg/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -108,11 +110,43 @@ func (c *Consumer) Consume(ctx context.Context, queue string, handler func(ctx c
 			}
 
 			if err := handler(ctx, msg); err != nil {
-				msg.Nack(false, true) // requeue on error
+				requeue := !IsPermanent(err)
+				if nackErr := msg.Nack(false, requeue); nackErr != nil {
+					return fmt.Errorf("nack after handler error: %w (handler err: %v)", nackErr, err)
+				}
 			} else {
-				msg.Ack(false)
+				if ackErr := msg.Ack(false); ackErr != nil {
+					return fmt.Errorf("ack: %w", ackErr)
+				}
 			}
 		}
+	}
+}
+
+func RunConsumer(ctx context.Context, cfg Config, queue string, log logger.Logger, handler func(context.Context, amqp.Delivery) error) {
+	backoff := time.Second
+	const maxBackoff = 30 * time.Second
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		c, err := NewConsumer(ctx, cfg)
+		if err != nil {
+			log.Warn(ctx, "rabbitmq consumer connect failed", "queue", queue, "err", err)
+			sleepCtx(ctx, backoff)
+			backoff = minDur(backoff*2, maxBackoff)
+			continue
+		}
+		backoff = time.Second
+		log.Info(ctx, "rabbitmq consumer connected", "queue", queue)
+		err = c.Consume(ctx, queue, handler)
+		_ = c.Close()
+		if ctx.Err() != nil {
+			return
+		}
+		log.Warn(ctx, "rabbitmq consumer session ended", "queue", queue, "err", err)
+		sleepCtx(ctx, backoff)
+		backoff = minDur(backoff*2, maxBackoff)
 	}
 }
 
@@ -121,4 +155,20 @@ func (c *Consumer) Close() error {
 		return err
 	}
 	return c.conn.Close()
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
+}
+
+func minDur(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }

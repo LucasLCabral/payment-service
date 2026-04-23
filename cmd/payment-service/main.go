@@ -90,13 +90,6 @@ func main() {
 		pub := outbox.NewPublisher(db, rabbit, log)
 		go pub.Run(ctx)
 
-		cons, err := messaging.NewConsumer(ctx, messaging.Config{URL: rabbitURL})
-		if err != nil {
-			log.Error(ctx, "rabbitmq consumer connection failed", "err", err)
-			os.Exit(1)
-		}
-		defer cons.Close()
-
 		var notifier settlement.PaymentStatusNotifier
 		if redisURL := getEnv("REDIS_URL", ""); redisURL != "" {
 			rdb, err := notify.ConnectRedis(ctx, redisURL)
@@ -110,12 +103,7 @@ func main() {
 		}
 
 		settlementHandler := settlement.NewHandler(txRunner, repo, log, notifier)
-		go func() {
-			log.Info(ctx, "consuming settlement queue", "queue", settlement.Queue)
-			if err := cons.Consume(ctx, settlement.Queue, settlementHandler.HandleMessage); err != nil {
-				log.Error(ctx, "settlement consumer stopped", "err", err)
-			}
-		}()
+		go messaging.RunConsumer(ctx, messaging.Config{URL: rabbitURL}, settlement.Queue, log, settlementHandler.HandleMessage)
 
 		log.Info(ctx, "outbox publisher + settlement consumer enabled", "rabbitmq", rabbitURL)
 	} else {

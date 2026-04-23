@@ -7,6 +7,7 @@ import (
 
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/messaging"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	"github.com/google/uuid"
@@ -48,7 +49,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 		h.log.Error(ctx, "invalid message payload", "err", err, "body", string(msg.Body))
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return fmt.Errorf("unmarshal: %w", err)
+		return messaging.Permanent(fmt.Errorf("unmarshal: %w", err))
 	}
 	telemetry.AnnotatePaymentID(ctx, evt.PaymentID.String())
 

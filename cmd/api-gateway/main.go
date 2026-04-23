@@ -12,7 +12,6 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/payment"
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/ws"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
-	"github.com/LucasLCabral/payment-service/pkg/notify"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -58,14 +57,8 @@ func main() {
 	reg := ws.NewRegistry(log)
 
 	if redisURL := getEnv("REDIS_URL", ""); redisURL != "" {
-		rdb, err := notify.ConnectRedis(appCtx, redisURL)
-		if err != nil {
-			log.Warn(ctx, "redis connect failed, websocket will not receive settlement pushes", "err", err)
-		} else {
-			defer rdb.Close()
-			go ws.SubscribePaymentStatus(appCtx, rdb, reg, log)
-			log.Info(ctx, "redis subscriber started", "addr", redisURL)
-		}
+		go ws.SubscribePaymentStatus(appCtx, redisURL, reg, log)
+		log.Info(ctx, "redis subscriber started", "addr", redisURL)
 	}
 
 	paymentsHandler := httpapi.NewPaymentsHandler(log, pay)
