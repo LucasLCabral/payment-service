@@ -33,7 +33,9 @@ message GetPaymentResponse {
   common.PaymentStatus status = 2;
   int64 amount_cents = 3;
   common.Currency currency = 4;
-  string created_at = 5;
-  string updated_at = 6;
-  string decline_reason = 7;
+  string payer_id = 5;
+  string payee_id = 6;
+  string created_at = 7;
+  string updated_at = 8;
+  string decline_reason = 9;
 }

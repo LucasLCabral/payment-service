@@ -216,9 +216,11 @@ type GetPaymentResponse struct {
 	Status        common.PaymentStatus   `protobuf:"varint,2,opt,name=status,proto3,enum=common.PaymentStatus" json:"status,omitempty"`
 	AmountCents   int64                  `protobuf:"varint,3,opt,name=amount_cents,json=amountCents,proto3" json:"amount_cents,omitempty"`
 	Currency      common.Currency        `protobuf:"varint,4,opt,name=currency,proto3,enum=common.Currency" json:"currency,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     string                 `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	DeclineReason string                 `protobuf:"bytes,7,opt,name=decline_reason,json=declineReason,proto3" json:"decline_reason,omitempty"`
+	PayerId       string                 `protobuf:"bytes,5,opt,name=payer_id,json=payerId,proto3" json:"payer_id,omitempty"`
+	PayeeId       string                 `protobuf:"bytes,6,opt,name=payee_id,json=payeeId,proto3" json:"payee_id,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     string                 `protobuf:"bytes,8,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	DeclineReason string                 `protobuf:"bytes,9,opt,name=decline_reason,json=declineReason,proto3" json:"decline_reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -281,6 +283,20 @@ func (x *GetPaymentResponse) GetCurrency() common.Currency {
 	return common.Currency(0)
 }
 
+func (x *GetPaymentResponse) GetPayerId() string {
+	if x != nil {
+		return x.PayerId
+	}
+	return ""
+}
+
+func (x *GetPaymentResponse) GetPayeeId() string {
+	if x != nil {
+		return x.PayeeId
+	}
+	return ""
+}
+
 func (x *GetPaymentResponse) GetCreatedAt() string {
 	if x != nil {
 		return x.CreatedAt
@@ -322,18 +338,20 @@ const file_proto_payment_payment_proto_rawDesc = "" +
 	"created_at\x18\x03 \x01(\tR\tcreatedAt\"2\n" +
 	"\x11GetPaymentRequest\x12\x1d\n" +
 	"\n" +
-	"payment_id\x18\x01 \x01(\tR\tpaymentId\"\x98\x02\n" +
+	"payment_id\x18\x01 \x01(\tR\tpaymentId\"\xce\x02\n" +
 	"\x12GetPaymentResponse\x12\x1d\n" +
 	"\n" +
 	"payment_id\x18\x01 \x01(\tR\tpaymentId\x12-\n" +
 	"\x06status\x18\x02 \x01(\x0e2\x15.common.PaymentStatusR\x06status\x12!\n" +
 	"\famount_cents\x18\x03 \x01(\x03R\vamountCents\x12,\n" +
-	"\bcurrency\x18\x04 \x01(\x0e2\x10.common.CurrencyR\bcurrency\x12\x1d\n" +
+	"\bcurrency\x18\x04 \x01(\x0e2\x10.common.CurrencyR\bcurrency\x12\x19\n" +
+	"\bpayer_id\x18\x05 \x01(\tR\apayerId\x12\x19\n" +
+	"\bpayee_id\x18\x06 \x01(\tR\apayeeId\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"created_at\x18\a \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\tR\tupdatedAt\x12%\n" +
-	"\x0edecline_reason\x18\a \x01(\tR\rdeclineReason2\xa7\x01\n" +
+	"updated_at\x18\b \x01(\tR\tupdatedAt\x12%\n" +
+	"\x0edecline_reason\x18\t \x01(\tR\rdeclineReason2\xa7\x01\n" +
 	"\x0ePaymentService\x12N\n" +
 	"\rCreatePayment\x12\x1d.payment.CreatePaymentRequest\x1a\x1e.payment.CreatePaymentResponse\x12E\n" +
 	"\n" +

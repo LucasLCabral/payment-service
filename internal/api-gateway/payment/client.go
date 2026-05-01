@@ -90,11 +90,21 @@ func (c *Client) GetPayment(ctx context.Context, req *payment.GetPaymentRequest)
 		if err != nil {
 			return nil, err
 		}
+		payerID, err := uuid.Parse(resp.GetPayerId())
+		if err != nil {
+			return nil, err
+		}
+		payeeID, err := uuid.Parse(resp.GetPayeeId())
+		if err != nil {
+			return nil, err
+		}
 		created, _ := time.Parse(time.RFC3339, resp.GetCreatedAt())
 		updated, _ := time.Parse(time.RFC3339, resp.GetUpdatedAt())
 
 		return &payment.Payment{
 			ID:            paymentID,
+			PayerID:       payerID,
+			PayeeID:       payeeID,
 			AmountCents:   resp.GetAmountCents(),
 			Currency:      protoconv.CurrencyFromProtoUnsafe(resp.GetCurrency()),
 			Status:        protoconv.StatusFromProto(resp.GetStatus()),
