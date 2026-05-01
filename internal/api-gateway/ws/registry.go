@@ -2,11 +2,10 @@ package ws
 
 import (
 	"context"
-	"os"
 	"sync"
 
-	"github.com/gorilla/websocket"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/gorilla/websocket"
 )
 
 type connEntry struct {
@@ -15,27 +14,15 @@ type connEntry struct {
 }
 
 type Registry struct {
-	mu         sync.RWMutex
-	conns      map[string]*connEntry
-	log        logger.Logger
-	instanceID string
+	mu    sync.RWMutex
+	conns map[string]*connEntry
+	log   logger.Logger
 }
 
 func NewRegistry(log logger.Logger) *Registry {
-	instanceID := os.Getenv("INSTANCE_ID")
-	if instanceID == "" {
-		// Fallback para hostname se INSTANCE_ID não estiver definido
-		if hostname, err := os.Hostname(); err == nil {
-			instanceID = hostname
-		} else {
-			instanceID = "api-gateway-unknown"
-		}
-	}
-	
 	return &Registry{
-		conns:      make(map[string]*connEntry),
-		log:        log,
-		instanceID: instanceID,
+		conns: make(map[string]*connEntry),
+		log:   log,
 	}
 }
 
@@ -83,16 +70,4 @@ func (r *Registry) SendJSON(paymentID string, data []byte) error {
 	defer e.writeMu.Unlock()
 
 	return e.conn.WriteMessage(websocket.TextMessage, data)
-}
-
-func (r *Registry) HasConnection(paymentID string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	
-	_, exists := r.conns[paymentID]
-	return exists
-}
-
-func (r *Registry) InstanceID() string {
-	return r.instanceID
 }

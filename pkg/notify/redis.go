@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/LucasLCabral/payment-service/pkg/payment"
@@ -19,8 +20,7 @@ type RedisPublisher struct {
 	rdb *redis.Client
 }
 
-const StreamPaymentNotifications = "payment:notifications"
-const ConsumerGroup = "api-gateway-group"
+const ChannelPaymentStatus = "payment:status"
 
 func ConnectRedis(ctx context.Context, addrOrURL string) (*redis.Client, error) {
 	opts, err := redis.ParseURL(addrOrURL)
@@ -43,13 +43,13 @@ func (p *RedisPublisher) NotifyPaymentStatus(ctx context.Context, paymentID uuid
 	if p == nil || p.rdb == nil {
 		return nil
 	}
-	
-	return p.rdb.XAdd(ctx, &redis.XAddArgs{
-		Stream: StreamPaymentNotifications,
-		Values: map[string]interface{}{
-			"payment_id":     paymentID.String(),
-			"status":         string(status),
-			"decline_reason": declineReason,
-		},
-	}).Err()
+	body, err := json.Marshal(StatusPayload{
+		PaymentID:     paymentID.String(),
+		Status:        string(status),
+		DeclineReason: declineReason,
+	})
+	if err != nil {
+		return err
+	}
+	return p.rdb.Publish(ctx, ChannelPaymentStatus, body).Err()
 }

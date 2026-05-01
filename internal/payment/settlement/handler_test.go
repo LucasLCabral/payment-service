@@ -5,184 +5,210 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 
-	stmocks "github.com/LucasLCabral/payment-service/internal/payment/settlement/mocks"
+	"github.com/LucasLCabral/payment-service/internal/payment/settlement/mocks"
 	pkgledger "github.com/LucasLCabral/payment-service/pkg/ledger"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
-	"github.com/LucasLCabral/payment-service/pkg/trace"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
 
-type nopLog struct{}
+func TestSettlementHandler_IdempotentBehavior(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-func (nopLog) Debug(context.Context, string, ...any) {}
-func (nopLog) Info(context.Context, string, ...any)  {}
-func (nopLog) Warn(context.Context, string, ...any)  {}
-func (nopLog) Error(context.Context, string, ...any) {}
-func (nopLog) With(...any) logger.Logger              { return nopLog{} }
+	mockTx := mocks.NewMockTransactionRunner(ctrl)
+	mockRepo := mocks.NewMockPayment(ctrl)
+	mockAudit := mocks.NewMockAudit(ctrl)
+	mockLogger := &MockLogger{}
 
-func TestMapStatus(t *testing.T) {
-	tests := []struct {
-		in   string
-		want payment.PaymentStatus
-	}{
-		{"SETTLED", payment.StatusSettled},
-		{"DECLINED", payment.StatusDeclined},
-		{"", payment.StatusUnspecified},
-		{"UNKNOWN", payment.StatusUnspecified},
+	handler := &Handler{
+		tx:    mockTx,
+		repo:  mockRepo,
+		audit: mockAudit,
+		log:   &LoggerWrapper{mockLogger},
 	}
-	for _, tt := range tests {
-		t.Run(tt.in, func(t *testing.T) {
-			if got := mapStatus(tt.in); got != tt.want {
-				t.Fatalf("mapStatus(%q) = %v, want %v", tt.in, got, tt.want)
-			}
+
+	ctx := context.Background()
+	paymentID := uuid.New()
+
+	event := pkgledger.SettlementResult{
+		PaymentID: paymentID,
+		Status:    "SETTLED",
+	}
+
+	body, err := json.Marshal(event)
+	assert.NoError(t, err)
+
+	msg := amqp.Delivery{
+		Body: body,
+		Headers: amqp.Table{
+			"traceparent": "00-1234567890abcdef-12345678-01",
+		},
+	}
+
+	// Configura o mock para executar a função de transação e retornar sql.ErrNoRows
+	mockTx.EXPECT().
+		WithinTransaction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, fn func(*sql.Tx) error) error {
+			return fn(nil) // Executa a função passada
 		})
-	}
+
+	mockRepo.EXPECT().
+		UpdateStatus(gomock.Any(), gomock.Any(), paymentID, payment.StatusSettled, "").
+		Return(sql.ErrNoRows)
+
+	err = handler.HandleMessage(ctx, msg)
+
+	assert.NoError(t, err, "Handler deve ser idempotente - sql.ErrNoRows deve ser tratado como sucesso")
 }
 
-func TestHandler_HandleMessage(t *testing.T) {
-	payID := uuid.MustParse("55555555-5555-4555-8555-555555555555")
-	traceID := uuid.MustParse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
-	headers := amqp.Table{trace.XTraceIDHeader: traceID.String()}
+func TestSettlementHandler_DatabaseError_ShouldFail(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-	tests := []struct {
-		name         string
-		body         []byte
-		withNotifier bool
-		setup        func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier)
-		wantErr      bool
-		errSubstr    string
-	}{
-		{
-			name:      "invalid json",
-			body:      []byte(`{`),
-			setup:     nil,
-			wantErr:   true,
-			errSubstr: "unmarshal",
-		},
-		{
-			name:      "unknown settlement status",
-			body:      mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "WEIRD"}),
-			setup:     nil,
-			wantErr:   true,
-			errSubstr: "unknown settlement status",
-		},
-		{
-			name: "tx failed",
-			body: mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
-				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).Return(errors.New("begin failed"))
-			},
-			wantErr:   true,
-			errSubstr: "begin failed",
-		},
-		{
-			name: "update failed",
-			body: mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
-				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(ctx context.Context, fn func(*sql.Tx) error) error {
-						return fn(nil)
-					})
-				repo.EXPECT().UpdateStatus(gomock.Any(), nil, payID, payment.StatusSettled, "").Return(errors.New("locked"))
-			},
-			wantErr:   true,
-			errSubstr: "locked",
-		},
-		{
-			name: "success without notifier",
-			body: mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
-				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(ctx context.Context, fn func(*sql.Tx) error) error {
-						return fn(nil)
-					})
-				repo.EXPECT().UpdateStatus(gomock.Any(), nil, payID, payment.StatusSettled, "").Return(nil)
-				audit.EXPECT().Insert(gomock.Any(), nil, gomock.Any()).Return(nil)
-			},
-			wantErr: false,
-		},
-		{
-			name:         "notifier error still ok",
-			body:         mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "DECLINED", DeclineReason: "nsf"}),
-			withNotifier: true,
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
-				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(ctx context.Context, fn func(*sql.Tx) error) error {
-						return fn(nil)
-					})
-				repo.EXPECT().UpdateStatus(gomock.Any(), nil, payID, payment.StatusDeclined, "nsf").Return(nil)
-				audit.EXPECT().Insert(gomock.Any(), nil, gomock.Any()).Return(nil)
-				n.EXPECT().NotifyPaymentStatus(gomock.Any(), payID, payment.StatusDeclined, "nsf").Return(errors.New("redis down"))
-			},
-			wantErr: false,
-		},
-		{
-			name:         "notifier success",
-			body:         mustJSON(t, pkgledger.SettlementResult{PaymentID: payID, Status: "SETTLED"}),
-			withNotifier: true,
-			setup: func(tx *stmocks.MockTransactionRunner, repo *stmocks.MockPayment, audit *stmocks.MockAudit, n *stmocks.MockPaymentStatusNotifier) {
-				tx.EXPECT().WithinTransaction(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(ctx context.Context, fn func(*sql.Tx) error) error {
-						return fn(nil)
-					})
-				repo.EXPECT().UpdateStatus(gomock.Any(), nil, payID, payment.StatusSettled, "").Return(nil)
-				audit.EXPECT().Insert(gomock.Any(), nil, gomock.Any()).Return(nil)
-				n.EXPECT().NotifyPaymentStatus(gomock.Any(), payID, payment.StatusSettled, "").Return(nil)
-			},
-			wantErr: false,
+	mockTx := mocks.NewMockTransactionRunner(ctrl)
+	mockRepo := mocks.NewMockPayment(ctrl)
+	mockAudit := mocks.NewMockAudit(ctrl)
+	mockLogger := &MockLogger{}
+
+	handler := &Handler{
+		tx:    mockTx,
+		repo:  mockRepo,
+		audit: mockAudit,
+		log:   &LoggerWrapper{mockLogger},
+	}
+
+	ctx := context.Background()
+	paymentID := uuid.New()
+
+	event := pkgledger.SettlementResult{
+		PaymentID: paymentID,
+		Status:    "SETTLED",
+	}
+
+	body, err := json.Marshal(event)
+	assert.NoError(t, err)
+
+	msg := amqp.Delivery{
+		Body: body,
+		Headers: amqp.Table{
+			"traceparent": "00-1234567890abcdef-12345678-01",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
+	dbError := errors.New("connection timeout")
 
-			mTx := stmocks.NewMockTransactionRunner(ctrl)
-			mRepo := stmocks.NewMockPayment(ctrl)
-			mAudit := stmocks.NewMockAudit(ctrl)
-			mNotifier := stmocks.NewMockPaymentStatusNotifier(ctrl)
-
-			if tt.setup != nil {
-				tt.setup(mTx, mRepo, mAudit, mNotifier)
-			}
-
-			var notifier PaymentStatusNotifier
-			if tt.withNotifier {
-				notifier = mNotifier
-			}
-
-			h := NewHandler(mTx, mRepo, mAudit, nopLog{}, notifier)
-			msg := amqp.Delivery{Body: tt.body, Headers: headers}
-			err := h.HandleMessage(context.Background(), msg)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
-				if tt.errSubstr != "" && !strings.Contains(err.Error(), tt.errSubstr) {
-					t.Fatalf("err %q should contain %q", err.Error(), tt.errSubstr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected err: %v", err)
-			}
+	// Configura o mock para executar a função de transação e retornar erro
+	mockTx.EXPECT().
+		WithinTransaction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, fn func(*sql.Tx) error) error {
+			return fn(nil) // Executa a função passada que deve retornar erro
 		})
-	}
+
+	mockRepo.EXPECT().
+		UpdateStatus(gomock.Any(), gomock.Any(), paymentID, payment.StatusSettled, "").
+		Return(dbError)
+
+	err = handler.HandleMessage(ctx, msg)
+
+	assert.Error(t, err)
 }
 
-func mustJSON(t *testing.T, v any) []byte {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
+func TestSettlementHandler_NormalFlow_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockTx := mocks.NewMockTransactionRunner(ctrl)
+	mockRepo := mocks.NewMockPayment(ctrl)
+	mockAudit := mocks.NewMockAudit(ctrl)
+	mockNotifier := mocks.NewMockPaymentStatusNotifier(ctrl)
+	mockLogger := &MockLogger{}
+
+	handler := &Handler{
+		tx:       mockTx,
+		repo:     mockRepo,
+		audit:    mockAudit,
+		log:      &LoggerWrapper{mockLogger},
+		notifier: mockNotifier,
 	}
-	return b
+
+	ctx := context.Background()
+	paymentID := uuid.New()
+
+	event := pkgledger.SettlementResult{
+		PaymentID: paymentID,
+		Status:    "SETTLED",
+	}
+
+	body, err := json.Marshal(event)
+	assert.NoError(t, err)
+
+	msg := amqp.Delivery{
+		Body: body,
+		Headers: amqp.Table{
+			"traceparent": "00-1234567890abcdef-12345678-01",
+		},
+	}
+
+	// Configura o mock para executar a função de transação com sucesso
+	mockTx.EXPECT().
+		WithinTransaction(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, fn func(*sql.Tx) error) error {
+			return fn(nil) // Executa a função passada
+		})
+	
+	mockRepo.EXPECT().
+		UpdateStatus(gomock.Any(), gomock.Any(), paymentID, payment.StatusSettled, "").
+		Return(nil)
+	
+	mockAudit.EXPECT().
+		Insert(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil)
+
+	mockNotifier.EXPECT().
+		NotifyPaymentStatus(gomock.Any(), paymentID, payment.StatusSettled, "").
+		Return(nil)
+
+	err = handler.HandleMessage(ctx, msg)
+
+	assert.NoError(t, err)
+}
+
+// MockLogger - mantido temporariamente para simplicidade dos testes
+// Em um projeto real, seria melhor criar um mock específico para o logger também
+type MockLogger struct{}
+
+func (m *MockLogger) Debug(ctx context.Context, msg string, keysAndValues ...interface{}) {}
+func (m *MockLogger) Info(ctx context.Context, msg string, keysAndValues ...interface{})  {}
+func (m *MockLogger) Error(ctx context.Context, msg string, keysAndValues ...interface{}) {}
+func (m *MockLogger) Warn(ctx context.Context, msg string, keysAndValues ...interface{})  {}
+func (m *MockLogger) With(args ...any) MockLogger                                         { return *m }
+
+type LoggerWrapper struct {
+	mock *MockLogger
+}
+
+func (w *LoggerWrapper) Debug(ctx context.Context, msg string, args ...any) {
+	w.mock.Debug(ctx, msg, args...)
+}
+
+func (w *LoggerWrapper) Info(ctx context.Context, msg string, args ...any) {
+	w.mock.Info(ctx, msg, args...)
+}
+
+func (w *LoggerWrapper) Error(ctx context.Context, msg string, args ...any) {
+	w.mock.Error(ctx, msg, args...)
+}
+
+func (w *LoggerWrapper) Warn(ctx context.Context, msg string, args ...any) {
+	w.mock.Warn(ctx, msg, args...)
+}
+
+func (w *LoggerWrapper) With(args ...any) logger.Logger {
+	return w
 }

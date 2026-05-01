@@ -62,10 +62,6 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: REDIS_URL
-            - name: INSTANCE_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
 ---
 apiVersion: v1
 kind: Service
