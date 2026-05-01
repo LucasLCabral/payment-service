@@ -46,6 +46,8 @@ func paymentToGetResponse(p *payment.Payment) *pb.GetPaymentResponse {
 		Status:        protoconv.StatusToProto(p.Status),
 		AmountCents:   p.AmountCents,
 		Currency:      protoconv.CurrencyToProto(p.Currency),
+		PayerId:       p.PayerID.String(),
+		PayeeId:       p.PayeeID.String(),
 		CreatedAt:     p.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:     p.UpdatedAt.UTC().Format(time.RFC3339),
 		DeclineReason: p.DeclineReason,
