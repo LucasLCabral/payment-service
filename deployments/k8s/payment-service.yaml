@@ -31,11 +31,11 @@ spec:
             timeoutSeconds: 3
           resources:
             requests:
-              memory: "64Mi"
-              cpu: "100m"
+              memory: "256Mi"
+              cpu: "500m"
             limits:
-              memory: "128Mi"
-              cpu: "200m"
+              memory: "1Gi"
+              cpu: "2000m"
           env:
             - name: PAYMENT_GRPC_PORT
               valueFrom:

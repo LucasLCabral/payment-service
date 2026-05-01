@@ -1,0 +1,134 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway-hpa
+  labels:
+    app: api-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70  # Scale when CPU > 70%
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80  # Scale when Memory > 80%
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60    # Wait 60s before scaling up
+      policies:
+      - type: Percent
+        value: 100                      # Double the number of pods
+        periodSeconds: 60
+      - type: Pods
+        value: 2                        # Add up to 2 pods
+        periodSeconds: 60
+      selectPolicy: Max                 # Use the most aggressive policy
+    scaleDown:
+      stabilizationWindowSeconds: 200   # Wait 3min before scaling down
+      policies:
+      - type: Percent
+        value: 50                       # Remove 50% of the pods
+        periodSeconds: 60
+      - type: Pods
+        value: 1                        # Remove up to 1 pod
+        periodSeconds: 60
+      selectPolicy: Min                 # Use the most conservative policy
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-service-hpa
+  labels:
+    app: payment-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-service
+  minReplicas: 1
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75  # Payment service more conservative
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 120   # Payment service scale slower
+      policies:
+      - type: Percent
+        value: 50                       # Increase 50% of the pods
+        periodSeconds: 120
+      - type: Pods
+        value: 1                        # Add 1 pod by 1 pod by time
+        periodSeconds: 120
+      selectPolicy: Min                 # More conservative scalability policy
+    scaleDown:
+      stabilizationWindowSeconds: 600   # 10min before scaling down
+      policies:
+      - type: Pods
+        value: 1                        # Remove 1 pod by 1 pod by time
+        periodSeconds: 300
+      selectPolicy: Min
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ledger-service-hpa
+  labels:
+    app: ledger-service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ledger-service
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80  # Ledger service more conservative
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 85
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 180   # Ledger service scale even slower
+      policies:
+      - type: Pods
+        value: 1                        # Add 1 pod by 1 pod by time
+        periodSeconds: 180
+      selectPolicy: Min
+    scaleDown:
+      stabilizationWindowSeconds: 900   # 15min before scaling down
+      policies:
+      - type: Pods
+        value: 1                        # Remove 1 pod by 1 pod by time  
+        periodSeconds: 600
+      selectPolicy: Min
