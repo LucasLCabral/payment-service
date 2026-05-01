@@ -71,6 +71,7 @@ k8s_yaml([
     './deployments/k8s/payment-service.yaml',
     './deployments/k8s/ledger-service.yaml',
     './deployments/k8s/api-gateway.yaml',
+    './deployments/k8s/hpa.yaml',
 ])
 
 # ── Resources & Port Forwards ───────────────────
