@@ -179,8 +179,6 @@ func TestSettlementHandler_NormalFlow_Success(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// MockLogger - mantido temporariamente para simplicidade dos testes
-// Em um projeto real, seria melhor criar um mock específico para o logger também
 type MockLogger struct{}
 
 func (m *MockLogger) Debug(ctx context.Context, msg string, keysAndValues ...interface{}) {}

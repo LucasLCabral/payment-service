@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/LucasLCabral/payment-service/internal/payment/repository"
@@ -82,6 +83,10 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 
 	err := h.tx.WithinTransaction(ctx, func(tx *sql.Tx) error {
 		if err := h.repo.UpdateStatus(ctx, tx, evt.PaymentID, newStatus, evt.DeclineReason); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				h.log.Info(ctx, "payment already processed, skipping settlement", "payment_id", evt.PaymentID, "status", evt.Status)
+				return nil
+			}
 			return fmt.Errorf("update status: %w", err)
 		}
 
