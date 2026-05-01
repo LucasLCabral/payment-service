@@ -1,6 +1,6 @@
 # Makefile para Payment Service
 
-.PHONY: help proto protog build test mocks loadclients k6-payments k8s-scale k8s-scale-down docker-up docker-down docker-logs tidy deps db-reset
+.PHONY: help proto protog build test mocks loadclients k6-payments k8s-scale k8s-scale-down docker-up docker-down docker-logs tidy deps db-reset tilt tilt-down minikube-start minikube-stop
 
 # Kubernetes (kubectl configure in the current context)
 K8S_NAMESPACE ?= default
@@ -269,6 +269,41 @@ docker-logs: ## Show logs of the containers
 
 docker-clean: ## Remove volumes and clean everything
 	docker-compose down -v
+
+# ── Kubernetes Development with Minikube & Tilt ──
+
+minikube-start: ## Start Minikube with recommended resources
+	@echo "🚀 Starting Minikube with recommended resources..."
+	minikube start --cpus=4 --memory=8192 --driver=docker
+	@echo "✅ Minikube started successfully!"
+	@echo "💡 Enable ingress if needed: minikube addons enable ingress"
+
+minikube-stop: ## Stop Minikube
+	@echo "🛑 Stopping Minikube..."
+	minikube stop
+	@echo "✅ Minikube stopped!"
+
+minikube-status: ## Check Minikube status and cluster info
+	@echo "📊 Minikube Status:"
+	@minikube status
+	@echo "\n🔗 Cluster Info:"
+	@kubectl cluster-info
+	@echo "\n📦 Nodes:"
+	@kubectl get nodes
+
+tilt: ## Start development environment with Tilt (requires Minikube)
+	@echo "🚀 Starting Tilt development environment..."
+	@echo "💡 Make sure Minikube is running: make minikube-start"
+	@echo "🔄 Building and deploying services to Kubernetes..."
+	tilt up
+
+tilt-down: ## Stop Tilt and clean up resources
+	@echo "🛑 Stopping Tilt and cleaning up resources..."
+	tilt down
+	@echo "✅ Tilt stopped and resources cleaned up!"
+
+tilt-ci: ## Run Tilt in CI mode (non-interactive)
+	tilt ci
 
 migrate-payment-up: ## Run migrations for the Payment Service
 	@echo "Migrations will be executed automatically by Tilt/Docker"
