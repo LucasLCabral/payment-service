@@ -117,7 +117,7 @@ export const options = {
     
     // Volume targets
     "retail_payments_total": ["count>200"],             // At least 200 retail payments
-    "corporate_payments_total": ["count>30"],           // At least 30 corporate payments
+    "corporate_payments_total": ["count>15"],           // At least 15 corporate payments (TED is low-frequency by design)
     
     // Value distribution 
     "micro_payments_total": ["count>50"],               // Many micro transactions
