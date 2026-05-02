@@ -90,6 +90,7 @@ func main() {
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("GET /health", monitoringHandler.Health)
+		mux.HandleFunc("GET /healthz", monitoringHandler.Health) // K8s health checks (no logging)
 		mux.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
 		
 		httpAddr := ":" + getEnv("LEDGER_HTTP_PORT", "8082")

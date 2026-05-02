@@ -19,17 +19,21 @@ spec:
             - containerPort: 9090
             - containerPort: 8081
           readinessProbe:
-            tcpSocket:
-              port: 9090
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-          livenessProbe:
-            tcpSocket:
-              port: 9090
+            httpGet:
+              path: /healthz
+              port: 8081
             initialDelaySeconds: 15
             periodSeconds: 10
-            timeoutSeconds: 3
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               memory: "256Mi"

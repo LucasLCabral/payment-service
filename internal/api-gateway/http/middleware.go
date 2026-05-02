@@ -34,12 +34,14 @@ func LoggingMiddleware(log logger.Logger) func(nethttp.Handler) nethttp.Handler 
 			sw := &statusWriter{ResponseWriter: w, status: nethttp.StatusOK}
 			next.ServeHTTP(sw, r)
 
-			log.Info(ctx, "http request",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", sw.status,
-				"duration_ms", time.Since(start).Milliseconds(),
-			)
+			if r.URL.Path != "/health" && r.URL.Path != "/healthz" {
+				log.Info(ctx, "http request",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", sw.status,
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
+			}
 		})
 	}
 }

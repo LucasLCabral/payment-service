@@ -1,6 +1,6 @@
 # Makefile para Payment Service
 
-.PHONY: help proto protog build test mocks loadclients k6-payments k8s-scale k8s-scale-down docker-up docker-down docker-logs tidy deps db-reset tilt tilt-down minikube-start minikube-stop
+.PHONY: help proto protog build test test-all test-coverage mocks loadclients k6-payments k6-all k6-e2e k6-realistic k6-websocket k6-stress k6-chaos k8s-scale k8s-scale-down docker-up docker-down docker-logs tidy deps db-reset tilt tilt-down minikube-start minikube-stop
 
 # Kubernetes (kubectl configure in the current context)
 K8S_NAMESPACE ?= default
@@ -24,16 +24,20 @@ build: ## Compile all services
 	go build -o bin/payment-service ./cmd/payment-service
 	go build -o bin/ledger-service ./cmd/ledger-service
 
-test: ## Run unit tests
+test: ## Run unit tests (fast)
 	go test ./... -short -v
 
-test-integration: ## Run integration tests (requires Docker)
-	go test ./... -v
+test-all: ## Run all tests including race detection
+	go test -v -race ./...
+
+# Integration tests removed - focus on unit tests + E2E with k6
 
 test-coverage: ## Run tests with coverage report
 	go test ./... -short -coverprofile=coverage.out -covermode=atomic
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
+
+# Removed complex integration test setup - use existing docker-compose targets for manual testing
 
 test-settlement: ## Run settlement handler tests specifically
 	go test ./internal/payment/settlement/... -v
@@ -181,13 +185,19 @@ k6-stress: ## Stress testing - Progressive load until breaking point (WS_STRESS_
 			$(K6_IMAGE) run stress_test.js; \
 	fi
 
-k6-all: ## Run all k6 tests in sequence (e2e -> realistic -> chaos)
-	@echo "🚀 Executando suite completa de testes k6..."
+k6-all: ## Run all k6 tests in sequence (e2e -> realistic -> websocket -> stress -> chaos)
+	@echo "🚀 Running complete k6 test suite..."
 	@$(MAKE) k6-e2e E2E_DURATION=30s
 	@echo "✅ E2E tests completed"
 	@sleep 2  
 	@$(MAKE) k6-realistic MOBILE_VUS=4
 	@echo "✅ Realistic load tests completed"
+	@sleep 2
+	@$(MAKE) k6-websocket
+	@echo "✅ WebSocket tests completed"
+	@sleep 2
+	@$(MAKE) k6-stress
+	@echo "✅ Stress tests completed"
 	@sleep 2
 	@$(MAKE) k6-chaos
 	@echo "✅ Chaos tests completed"
@@ -246,8 +256,7 @@ k8s-stress-full: ## Complete stress test with automatic scaling monitoring and a
 	@echo "🚀 Starting full stress test with auto-scaling monitoring..."
 	./scripts/stress-test-with-monitoring.sh
 
-test: ## Run all tests
-	go test -v -race ./...
+# Duplicate target removed - see test-all above
 
 mocks: ## Generate mocks (go generate in packages with //go:generate)
 	go generate ./...

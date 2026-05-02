@@ -76,6 +76,7 @@ func main() {
 	rest.HandleFunc("POST /payments", paymentsHandler.Create)
 	rest.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
 	rest.HandleFunc("GET /health", monitoringHandler.Health)
+	rest.HandleFunc("GET /healthz", monitoringHandler.Health) // K8s health checks (no logging)
 	rest.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
 	otelREST := otelhttp.NewHandler(httpapi.LoggingMiddleware(log)(rest), "api-gateway")
 

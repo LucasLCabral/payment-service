@@ -182,19 +182,11 @@ make test-all                # Run all tests with race detection
 make test-coverage           # Generate coverage report (coverage.html)
 ```
 
-### Integration Tests
-```bash
-make test-integration        # Run integration tests (auto-setup with Docker)
-make test-integration-local  # Run integration tests (services already running)
-make test-coverage-integration  # Integration tests with coverage report
-```
-
-**Integration test features:**
-- ✅ **Auto-setup**: Automatically starts required services with Docker Compose
-- ✅ **Database testing**: Real PostgreSQL transactions, concurrency, constraints
-- ✅ **Repository testing**: Payment and Ledger repository integration tests  
-- ✅ **Circuit Breaker**: Real-world scenarios, concurrent load, timing tests
-- ✅ **Cleanup**: Automatic teardown after tests complete
+**Testing approach:**
+- ✅ **Unit tests**: Fast, reliable, isolated tests with mocks
+- ✅ **Circuit Breaker tests**: Comprehensive state machine validation
+- ✅ **HTTP handler tests**: Request/response validation with test servers
+- ✅ **E2E tests**: Complete system validation with k6 load testing
 ```
 
 ### Integration Tests
