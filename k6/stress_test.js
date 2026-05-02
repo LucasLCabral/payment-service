@@ -137,8 +137,9 @@ export function stress_payment_flow() {
       const paymentRes = createPayment(amount);
       
       const success = check(paymentRes, {
-        "payment created": (r) => r.status === 201,
-        "payment id exists": (r) => r.json("payment_id") !== undefined,
+        "payment created or rate-limited": (r) => r.status === 201 || r.status === 429,
+        "no server error": (r) => r.status < 500,
+        "payment id exists": (r) => r.status !== 201 || r.json("payment_id") !== undefined,
       });
       
       stressPayments.add(1);
@@ -209,8 +210,11 @@ export function intensive_payment_burst() {
       const amount = Math.floor(Math.random() * 200000) + 1000; // $10 - $2000
       const paymentRes = createPayment(amount);
       
-      const success = check(paymentRes, {
-        "burst payment ok": (r) => r.status === 201,
+      // 429 = rate limited (expected under high load, not a system failure).
+    // 201 = created. Anything else = real error.
+    const success = check(paymentRes, {
+        "burst payment ok": (r) => r.status === 201 || r.status === 429,
+        "no server error":  (r) => r.status < 500,
       });
       
       stressPayments.add(1);

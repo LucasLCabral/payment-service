@@ -23,11 +23,12 @@ type Client struct {
 func NewClient(conn grpc.ClientConnInterface, serviceName string) *Client {
 	config := circuitbreaker.GRPCConfig()
 
-	config.MaxRequests = 3
-	config.Timeout = 30 * time.Second
+	config.MaxRequests = 10
+	config.Timeout = 10 * time.Second
+
 	config.ReadyToTrip = func(counts circuitbreaker.Counts) bool {
-		return counts.ConsecutiveFailures >= 3 ||
-			(counts.Requests >= 5 && float64(counts.TotalFailures)/float64(counts.Requests) >= 0.6)
+		return counts.ConsecutiveFailures >= 10 ||
+			(counts.Requests >= 20 && float64(counts.TotalFailures)/float64(counts.Requests) >= 0.70)
 	}
 	config.IsSuccessful = isGRPCCallSuccessful
 
@@ -150,9 +151,16 @@ func isGRPCCallSuccessful(err error) bool {
 
 	if grpcStatus, ok := status.FromError(err); ok {
 		switch grpcStatus.Code() {
-		case codes.InvalidArgument, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.Unauthenticated:
+		case codes.InvalidArgument, codes.NotFound, codes.AlreadyExists,
+			codes.PermissionDenied, codes.Unauthenticated:
+			// Business-logic errors: server is healthy, request was just invalid.
 			return true
-		case codes.DeadlineExceeded, codes.Unavailable, codes.Internal, codes.ResourceExhausted, codes.Aborted:
+		case codes.ResourceExhausted:
+			// Server is alive and actively throttling — not a failure of the
+			// downstream service. Do not penalise the circuit breaker counter.
+			return true
+		case codes.DeadlineExceeded, codes.Unavailable, codes.Internal, codes.Aborted:
+			// Real infrastructure failures that warrant circuit breaker action.
 			return false
 		default:
 			return false

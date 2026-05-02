@@ -1,3 +1,5 @@
+//go:generate mockgen -destination=../settlement/mocks/payment_repository_mock.go -package=mocks github.com/LucasLCabral/payment-service/internal/payment/repository Payment
+
 package repository
 
 import (
@@ -11,6 +13,7 @@ import (
 type Payment interface {
 	Create(ctx context.Context, tx *sql.Tx, in *payment.CreatePaymentRequest, traceID uuid.UUID) (*payment.Payment, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*payment.Payment, error)
+	FindByIDTx(ctx context.Context, tx *sql.Tx, id uuid.UUID) (*payment.Payment, error)
 	FindByIdempotencyKey(ctx context.Context, tx *sql.Tx, key uuid.UUID) (*payment.Payment, error)
 	UpdateStatus(ctx context.Context, tx *sql.Tx, id uuid.UUID, status payment.PaymentStatus, declineReason string) error
 }

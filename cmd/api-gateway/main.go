@@ -11,7 +11,9 @@ import (
 	httpapi "github.com/LucasLCabral/payment-service/internal/api-gateway/http"
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/payment"
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/ws"
+	"github.com/LucasLCabral/payment-service/pkg/config"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/middleware"
 	"github.com/LucasLCabral/payment-service/pkg/monitoring"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
@@ -19,6 +21,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
 
 func main() {
@@ -41,7 +44,7 @@ func main() {
 		}
 	}()
 
-	paymentAddr := getEnv("PAYMENT_GRPC_ADDR", "localhost:9090")
+	paymentAddr := config.Get("PAYMENT_GRPC_ADDR", "localhost:9090")
 	var pay httpapi.PaymentService
 	var paymentClient *payment.Client
 
@@ -49,6 +52,11 @@ func main() {
 		paymentAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                20 * time.Second,
+			Timeout:             5 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	)
 	if err != nil {
 		log.Warn(ctx, "gRPC client failed", "addr", paymentAddr, "err", err)
@@ -60,7 +68,7 @@ func main() {
 
 	reg := ws.NewRegistry(log)
 
-	if redisURL := getEnv("REDIS_URL", ""); redisURL != "" {
+	if redisURL := config.Get("REDIS_URL", ""); redisURL != "" {
 		go ws.SubscribePaymentStatus(appCtx, redisURL, reg, log)
 		log.Info(ctx, "redis subscriber started", "addr", redisURL)
 	}
@@ -72,22 +80,36 @@ func main() {
 		monitoringHandler.RegisterCircuitBreaker(paymentClient)
 	}
 
+	rl := middleware.NewRateLimiter(middleware.Config{
+		ClientRPS:       config.MustInt("RATE_LIMIT_RPS", 100),
+		ClientBurst:     config.MustInt("RATE_LIMIT_BURST", 200),
+		GlobalRPS:       config.MustInt("GLOBAL_RATE_LIMIT", 5000),
+		GlobalBurst:     config.MustInt("GLOBAL_RATE_BURST", 1000),
+		SkipPaths:       []string{"/health", "/healthz", "/circuit-breakers"},
+		CleanupInterval: 5 * time.Minute,
+	})
+
 	rest := http.NewServeMux()
 	rest.HandleFunc("POST /payments", paymentsHandler.Create)
 	rest.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
 	rest.HandleFunc("GET /health", monitoringHandler.Health)
-	rest.HandleFunc("GET /healthz", monitoringHandler.Health) // K8s health checks (no logging)
+	rest.HandleFunc("GET /healthz", monitoringHandler.Health)
 	rest.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
-	otelREST := otelhttp.NewHandler(httpapi.LoggingMiddleware(log)(rest), "api-gateway")
+
+	otelREST := otelhttp.NewHandler(rl.Middleware(httpapi.LoggingMiddleware(log)(rest)), "api-gateway")
 
 	root := http.NewServeMux()
 	root.Handle("GET /ws", &ws.Handler{Reg: reg, Log: log})
 	root.Handle("/", otelREST)
 
-	httpAddr := ":" + getEnv("API_GATEWAY_PORT", "8080")
+	httpAddr := ":" + config.Get("API_GATEWAY_PORT", "8080")
 	srv := &http.Server{
-		Addr:    httpAddr,
-		Handler: root,
+		Addr:           httpAddr,
+		Handler:        root,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	go func() {
@@ -98,7 +120,7 @@ func main() {
 	}()
 
 	log.Info(ctx, "API Gateway up",
-		"environment", getEnv("ENVIRONMENT", "development"),
+		"environment", config.Get("ENVIRONMENT", "development"),
 		"payment_grpc", paymentAddr,
 	)
 
@@ -116,9 +138,3 @@ func main() {
 	log.Info(ctx, "api-gateway stopped")
 }
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}

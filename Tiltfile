@@ -47,6 +47,8 @@ configmap_create(
     'postgres-payment-initdb',
     from_file=[
         '000001_init_schema.up.sql=./deployments/migrations/payment/000001_init_schema.up.sql',
+        '000002_outbox_next_retry.up.sql=./deployments/migrations/payment/000002_outbox_next_retry.up.sql',
+        '000003_outbox_processing_status.up.sql=./deployments/migrations/payment/000003_outbox_processing_status.up.sql',
     ],
 )
 
@@ -71,8 +73,16 @@ k8s_yaml([
     './deployments/k8s/payment-service.yaml',
     './deployments/k8s/ledger-service.yaml',
     './deployments/k8s/api-gateway.yaml',
-    './deployments/k8s/hpa.yaml',
+    './deployments/k8s/api-gateway-hpa.yaml',
 ])
+
+# KEDA ScaledObjects require the KEDA operator to be installed in the cluster first.
+# Install it once with:
+#   kubectl apply -f https://github.com/kedacore/keda/releases/latest/download/keda-2.16.0.yaml
+# Then re-run tilt with:
+#   KEDA_ENABLED=1 tilt up
+if os.getenv('KEDA_ENABLED', '') == '1':
+    k8s_yaml('./deployments/k8s/keda.yaml')
 
 # ── Resources & Port Forwards ───────────────────
 

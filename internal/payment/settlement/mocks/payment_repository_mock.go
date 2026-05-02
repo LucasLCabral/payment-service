@@ -73,6 +73,21 @@ func (mr *MockPaymentMockRecorder) FindByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByID", reflect.TypeOf((*MockPayment)(nil).FindByID), ctx, id)
 }
 
+// FindByIDTx mocks base method.
+func (m *MockPayment) FindByIDTx(ctx context.Context, tx *sql.Tx, id uuid.UUID) (*payment.Payment, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByIDTx", ctx, tx, id)
+	ret0, _ := ret[0].(*payment.Payment)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByIDTx indicates an expected call of FindByIDTx.
+func (mr *MockPaymentMockRecorder) FindByIDTx(ctx, tx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByIDTx", reflect.TypeOf((*MockPayment)(nil).FindByIDTx), ctx, tx, id)
+}
+
 // FindByIdempotencyKey mocks base method.
 func (m *MockPayment) FindByIdempotencyKey(ctx context.Context, tx *sql.Tx, key uuid.UUID) (*payment.Payment, error) {
 	m.ctrl.T.Helper()

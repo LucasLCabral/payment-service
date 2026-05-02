@@ -81,16 +81,30 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 		"status", evt.Status,
 	)
 
+	applied := false
+
 	err := h.tx.WithinTransaction(ctx, func(tx *sql.Tx) error {
-		if err := h.repo.UpdateStatus(ctx, tx, evt.PaymentID, newStatus, evt.DeclineReason); err != nil {
+		current, err := h.repo.FindByIDTx(ctx, tx, evt.PaymentID)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				h.log.Info(ctx, "payment already processed, skipping settlement", "payment_id", evt.PaymentID, "status", evt.Status)
-				return nil
+				return messaging.Permanent(fmt.Errorf("payment not found: %s", evt.PaymentID))
 			}
+			return fmt.Errorf("lock payment: %w", err)
+		}
+
+		if current.Status != payment.StatusPending {
+			h.log.Info(ctx, "settlement already applied, skipping duplicate",
+				"payment_id", evt.PaymentID,
+				"current_status", current.Status,
+			)
+			return nil
+		}
+
+		if err := h.repo.UpdateStatus(ctx, tx, evt.PaymentID, newStatus, evt.DeclineReason); err != nil {
 			return fmt.Errorf("update status: %w", err)
 		}
 
-		return h.audit.Insert(ctx, tx, &payment.AuditEntry{
+		if err := h.audit.Insert(ctx, tx, &payment.AuditEntry{
 			EntityType: "payment",
 			EntityID:   evt.PaymentID,
 			Action:     "settlement." + evt.Status,
@@ -98,13 +112,23 @@ func (h *Handler) HandleMessage(ctx context.Context, msg amqp.Delivery) error {
 			NewStatus:  newStatus,
 			TraceID:    traceID,
 			Actor:      "ledger-service",
-		})
+		}); err != nil {
+			return err
+		}
+
+		applied = true
+		return nil
 	})
 	if err != nil {
 		h.log.Error(ctx, "settlement processing failed", "payment_id", evt.PaymentID, "err", err)
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return err
+	}
+
+	if !applied {
+		span.SetStatus(codes.Ok, "duplicate")
+		return nil
 	}
 
 	h.log.Info(ctx, "settlement applied", "payment_id", evt.PaymentID, "new_status", newStatus)

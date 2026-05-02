@@ -1,0 +1,86 @@
+# KEDA (Kubernetes Event-Driven Autoscaling) ScaledObjects
+#
+# Prerequisite: KEDA operator must be installed in the cluster.
+#   kubectl apply -f https://github.com/kedacore/keda/releases/latest/download/keda-2.x.y.yaml
+#   or via Helm: helm install keda kedacore/keda --namespace keda --create-namespace
+#
+# Why KEDA instead of (only) CPU/Memory HPA:
+#   CPU/Memory autoscaling is reactive — it scales AFTER the system is already
+#   under stress. Queue-depth autoscaling is predictive: if 10k messages are
+#   waiting to be consumed, we know we need more pods NOW, before CPU spikes.
+#
+# These ScaledObjects REPLACE the HPA for payment-service and ledger-service.
+# The api-gateway HPA (CPU/Memory) is kept because HTTP traffic does not
+# produce a queue-depth metric.
+
+---
+# TriggerAuthentication holds the RabbitMQ credentials used by all ScaledObjects.
+# Reads from the same Secret that the services use, so there is a single
+# source of truth for RabbitMQ credentials.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: rabbitmq-trigger-auth
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: rabbitmq-credentials
+      key: uri
+
+---
+# payment-service scales based on how many payment.created events are waiting
+# to be processed by the ledger-service. When this queue grows, it means
+# payments are being created faster than the ledger can process them.
+# Scaling payment-service here keeps the pressure visible upstream.
+#
+# lagThreshold: 100 means "add one replica for every 100 pending messages".
+# With minReplicaCount=1 and maxReplicaCount=8, the service scales between
+# 1 and 8 pods automatically.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: payment-service-scaledobject
+spec:
+  scaleTargetRef:
+    name: payment-service
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  # cooldownPeriod: how long to wait before scaling down after queue empties.
+  # 120s prevents flapping when queue oscillates around the threshold.
+  cooldownPeriod: 120
+  # pollingInterval: how often KEDA checks the queue depth (seconds).
+  pollingInterval: 10
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: ledger.payment.created
+        mode: QueueLength   # scale on total messages in queue
+        value: "100"        # one replica per 100 messages
+      authenticationRef:
+        name: rabbitmq-trigger-auth
+
+---
+# ledger-service scales based on the settlement queue depth.
+# The settlement queue fills up when ledger-service is the bottleneck —
+# it has received events from payment-service but hasn't processed them yet.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: ledger-service-scaledobject
+spec:
+  scaleTargetRef:
+    name: ledger-service
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  cooldownPeriod: 180   # ledger has external effects (DB writes), scale down slower
+  pollingInterval: 10
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: payment.settlement
+        mode: QueueLength
+        value: "50"         # ledger is heavier per message, scale more aggressively
+      authenticationRef:
+        name: rabbitmq-trigger-auth

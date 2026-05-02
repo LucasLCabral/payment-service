@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -15,6 +15,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/repository/postgres"
 	"github.com/LucasLCabral/payment-service/internal/payment/service"
 	"github.com/LucasLCabral/payment-service/internal/payment/settlement"
+	"github.com/LucasLCabral/payment-service/pkg/config"
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	"github.com/LucasLCabral/payment-service/pkg/messaging"
@@ -25,6 +26,7 @@ import (
 	pb "github.com/LucasLCabral/payment-service/protog/payment"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 func main() {
@@ -47,19 +49,13 @@ func main() {
 		}
 	}()
 
-	port, err := strconv.Atoi(getEnv("PAYMENT_DB_PORT", "5432"))
-	if err != nil {
-		log.Error(ctx, "invalid PAYMENT_DB_PORT", "err", err)
-		os.Exit(1)
-	}
-
 	db, err := database.Connect(ctx, database.Config{
-		Host:     getEnv("PAYMENT_DB_HOST", "localhost"),
-		Port:     port,
-		User:     getEnv("PAYMENT_DB_USER", "payment_user"),
-		Password: getEnv("PAYMENT_DB_PASSWORD", "payment_pass"),
-		Database: getEnv("PAYMENT_DB_NAME", "payment_db"),
-		SSLMode:  getEnv("PAYMENT_DB_SSLMODE", "disable"),
+		Host:     config.Get("PAYMENT_DB_HOST", "localhost"),
+		Port:     config.MustInt("PAYMENT_DB_PORT", 5432),
+		User:     config.Get("PAYMENT_DB_USER", "payment_user"),
+		Password: config.Get("PAYMENT_DB_PASSWORD", "payment_pass"),
+		Database: config.Get("PAYMENT_DB_NAME", "payment_db"),
+		SSLMode:  config.Get("PAYMENT_DB_SSLMODE", "disable"),
 	})
 	if err != nil {
 		log.Error(ctx, "database connection failed", "err", err)
@@ -76,7 +72,7 @@ func main() {
 	var rabbit *messaging.Publisher
 	var notifier settlement.PaymentStatusNotifier
 
-	if rabbitURL := os.Getenv("RABBITMQ_URL"); rabbitURL != "" {
+	if rabbitURL := config.Get("RABBITMQ_URL", ""); rabbitURL != "" {
 		var err error
 		rabbit, err = messaging.NewPublisher(ctx, messaging.Config{URL: rabbitURL})
 		if err != nil {
@@ -98,7 +94,7 @@ func main() {
 		pub := outbox.NewPublisher(db, rabbit, log)
 		go pub.Run(ctx)
 
-		if redisURL := getEnv("REDIS_URL", ""); redisURL != "" {
+		if redisURL := config.Get("REDIS_URL", ""); redisURL != "" {
 			rdb, err := notify.ConnectRedis(ctx, redisURL)
 			if err != nil {
 				log.Warn(ctx, "redis connection failed, settlement will not push WS updates", "err", err)
@@ -117,7 +113,7 @@ func main() {
 		log.Warn(ctx, "RABBITMQ_URL not set, outbox publisher and settlement consumer disabled")
 	}
 
-	addr := ":" + getEnv("PAYMENT_GRPC_PORT", "9090")
+	addr := ":" + config.Get("PAYMENT_GRPC_PORT", "9090")
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Error(ctx, "failed to listen", "addr", addr, "err", err)
@@ -126,6 +122,11 @@ func main() {
 
 	srv := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 30 * time.Second,
+			Time:              20 * time.Second,
+			Timeout:           5 * time.Second,
+		}),
 	)
 	pb.RegisterPaymentServiceServer(srv, &grpcsvc.Server{Svc: svc})
 
@@ -136,8 +137,9 @@ func main() {
 		}
 	}()
 
-	// Monitoring endpoints
 	monitoringHandler := monitoring.NewHandler(log)
+	metricsCollector := monitoring.NewMetricsCollector(db)
+
 	if rabbit != nil {
 		monitoringHandler.RegisterCircuitBreaker(rabbit)
 	}
@@ -146,16 +148,29 @@ func main() {
 	}
 	monitoringHandler.RegisterCircuitBreaker(cbDB)
 
+	monMux := http.NewServeMux()
+	monMux.HandleFunc("GET /health", monitoringHandler.Health)
+	monMux.HandleFunc("GET /healthz", monitoringHandler.Health)
+	monMux.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
+	monMux.HandleFunc("GET /metrics", metricsCollector.MetricsHandler())
+	monMux.HandleFunc("GET /metrics/prometheus", metricsCollector.PrometheusMetricsHandler())
+	monMux.HandleFunc("GET /performance", func(w http.ResponseWriter, r *http.Request) {
+		status := metricsCollector.PerformanceAlert()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
+	})
+
+	monAddr := ":" + config.Get("PAYMENT_HTTP_PORT", "8081")
+	monSrv := &http.Server{
+		Addr:         monAddr,
+		Handler:      monMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
 	go func() {
-		mux := http.NewServeMux()
-		mux.HandleFunc("GET /health", monitoringHandler.Health)
-		mux.HandleFunc("GET /healthz", monitoringHandler.Health) // K8s health checks (no logging)
-		mux.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
-		
-		httpAddr := ":" + getEnv("PAYMENT_HTTP_PORT", "8081")
-		log.Info(ctx, "monitoring HTTP listening", "addr", httpAddr)
-		if err := http.ListenAndServe(httpAddr, mux); err != nil {
-			log.Error(context.Background(), "monitoring HTTP server stopped", "err", err)
+		log.Info(ctx, "monitoring HTTP listening", "addr", monAddr)
+		if err := monSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error(context.Background(), "monitoring HTTP stopped", "err", err)
 		}
 	}()
 
@@ -168,12 +183,11 @@ func main() {
 	log.Info(ctx, "shutdown signal received")
 	cancel()
 	srv.GracefulStop()
-	log.Info(ctx, "payment-service stopped")
-}
 
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	if err := monSrv.Shutdown(shutdownCtx); err != nil {
+		log.Error(context.Background(), "monitoring HTTP shutdown", "err", err)
 	}
-	return defaultValue
+	log.Info(ctx, "payment-service stopped")
 }

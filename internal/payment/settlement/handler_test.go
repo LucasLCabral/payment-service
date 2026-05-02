@@ -17,166 +17,122 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestSettlementHandler_IdempotentBehavior(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockTx := mocks.NewMockTransactionRunner(ctrl)
-	mockRepo := mocks.NewMockPayment(ctrl)
-	mockAudit := mocks.NewMockAudit(ctrl)
-	mockLogger := &MockLogger{}
-
-	handler := &Handler{
-		tx:    mockTx,
-		repo:  mockRepo,
-		audit: mockAudit,
-		log:   &LoggerWrapper{mockLogger},
-	}
-
-	ctx := context.Background()
-	paymentID := uuid.New()
-
-	event := pkgledger.SettlementResult{
-		PaymentID: paymentID,
-		Status:    "SETTLED",
-	}
-
-	body, err := json.Marshal(event)
-	assert.NoError(t, err)
-
-	msg := amqp.Delivery{
-		Body: body,
-		Headers: amqp.Table{
-			"traceparent": "00-1234567890abcdef-12345678-01",
-		},
-	}
-
-	// Configura o mock para executar a função de transação e retornar sql.ErrNoRows
-	mockTx.EXPECT().
-		WithinTransaction(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, fn func(*sql.Tx) error) error {
-			return fn(nil) // Executa a função passada
-		})
-
-	mockRepo.EXPECT().
-		UpdateStatus(gomock.Any(), gomock.Any(), paymentID, payment.StatusSettled, "").
-		Return(sql.ErrNoRows)
-
-	err = handler.HandleMessage(ctx, msg)
-
-	assert.NoError(t, err, "Handler deve ser idempotente - sql.ErrNoRows deve ser tratado como sucesso")
-}
-
-func TestSettlementHandler_DatabaseError_ShouldFail(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockTx := mocks.NewMockTransactionRunner(ctrl)
-	mockRepo := mocks.NewMockPayment(ctrl)
-	mockAudit := mocks.NewMockAudit(ctrl)
-	mockLogger := &MockLogger{}
-
-	handler := &Handler{
-		tx:    mockTx,
-		repo:  mockRepo,
-		audit: mockAudit,
-		log:   &LoggerWrapper{mockLogger},
-	}
-
-	ctx := context.Background()
-	paymentID := uuid.New()
-
-	event := pkgledger.SettlementResult{
-		PaymentID: paymentID,
-		Status:    "SETTLED",
-	}
-
-	body, err := json.Marshal(event)
-	assert.NoError(t, err)
-
-	msg := amqp.Delivery{
-		Body: body,
-		Headers: amqp.Table{
-			"traceparent": "00-1234567890abcdef-12345678-01",
-		},
-	}
-
-	dbError := errors.New("connection timeout")
-
-	// Configura o mock para executar a função de transação e retornar erro
-	mockTx.EXPECT().
-		WithinTransaction(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, fn func(*sql.Tx) error) error {
-			return fn(nil) // Executa a função passada que deve retornar erro
-		})
-
-	mockRepo.EXPECT().
-		UpdateStatus(gomock.Any(), gomock.Any(), paymentID, payment.StatusSettled, "").
-		Return(dbError)
-
-	err = handler.HandleMessage(ctx, msg)
-
-	assert.Error(t, err)
-}
-
-func TestSettlementHandler_NormalFlow_Success(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
+func newHandler(ctrl *gomock.Controller) (*Handler, *mocks.MockTransactionRunner, *mocks.MockPayment, *mocks.MockAudit, *mocks.MockPaymentStatusNotifier) {
 	mockTx := mocks.NewMockTransactionRunner(ctrl)
 	mockRepo := mocks.NewMockPayment(ctrl)
 	mockAudit := mocks.NewMockAudit(ctrl)
 	mockNotifier := mocks.NewMockPaymentStatusNotifier(ctrl)
-	mockLogger := &MockLogger{}
-
-	handler := &Handler{
+	h := &Handler{
 		tx:       mockTx,
 		repo:     mockRepo,
 		audit:    mockAudit,
-		log:      &LoggerWrapper{mockLogger},
+		log:      &LoggerWrapper{&MockLogger{}},
 		notifier: mockNotifier,
 	}
+	return h, mockTx, mockRepo, mockAudit, mockNotifier
+}
 
-	ctx := context.Background()
-	paymentID := uuid.New()
-
-	event := pkgledger.SettlementResult{
-		PaymentID: paymentID,
-		Status:    "SETTLED",
-	}
-
-	body, err := json.Marshal(event)
+func settlementMsg(t *testing.T, paymentID uuid.UUID, status string) amqp.Delivery {
+	t.Helper()
+	body, err := json.Marshal(pkgledger.SettlementResult{PaymentID: paymentID, Status: status})
 	assert.NoError(t, err)
+	return amqp.Delivery{Body: body, Headers: amqp.Table{"traceparent": "00-1234567890abcdef-12345678-01"}}
+}
 
-	msg := amqp.Delivery{
-		Body: body,
-		Headers: amqp.Table{
-			"traceparent": "00-1234567890abcdef-12345678-01",
-		},
-	}
-
-	// Configura o mock para executar a função de transação com sucesso
+func withinTx(mockTx *mocks.MockTransactionRunner) {
 	mockTx.EXPECT().
 		WithinTransaction(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, fn func(*sql.Tx) error) error {
-			return fn(nil) // Executa a função passada
+			return fn(nil)
 		})
-	
+}
+
+// TestSettlementHandler_NormalFlow_Success verifica o caminho feliz: pagamento
+// PENDING é atualizado para SETTLED e o notifier é chamado.
+func TestSettlementHandler_NormalFlow_Success(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, mockTx, mockRepo, mockAudit, mockNotifier := newHandler(ctrl)
+	paymentID := uuid.New()
+
+	withinTx(mockTx)
+	mockRepo.EXPECT().
+		FindByIDTx(gomock.Any(), gomock.Any(), paymentID).
+		Return(&payment.Payment{ID: paymentID, Status: payment.StatusPending}, nil)
 	mockRepo.EXPECT().
 		UpdateStatus(gomock.Any(), gomock.Any(), paymentID, payment.StatusSettled, "").
 		Return(nil)
-	
 	mockAudit.EXPECT().
 		Insert(gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil)
-
 	mockNotifier.EXPECT().
 		NotifyPaymentStatus(gomock.Any(), paymentID, payment.StatusSettled, "").
 		Return(nil)
 
-	err = handler.HandleMessage(ctx, msg)
-
+	err := h.HandleMessage(context.Background(), settlementMsg(t, paymentID, "SETTLED"))
 	assert.NoError(t, err)
+}
+
+// TestSettlementHandler_IdempotentBehavior verifica que mensagens duplicadas são
+// silenciosamente ignoradas quando o status já foi atualizado anteriormente.
+// O handler detecta isso ao ler o status atual antes de atualizar — sem depender
+// de erros do banco de dados.
+func TestSettlementHandler_IdempotentBehavior(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, mockTx, mockRepo, _, _ := newHandler(ctrl)
+	paymentID := uuid.New()
+
+	withinTx(mockTx)
+	// Simula segunda entrega: status já é SETTLED (não PENDING).
+	// UpdateStatus NÃO deve ser chamado — a mensagem é descartada.
+	mockRepo.EXPECT().
+		FindByIDTx(gomock.Any(), gomock.Any(), paymentID).
+		Return(&payment.Payment{ID: paymentID, Status: payment.StatusSettled}, nil)
+
+	err := h.HandleMessage(context.Background(), settlementMsg(t, paymentID, "SETTLED"))
+	assert.NoError(t, err, "mensagem duplicada deve ser aceita silenciosamente")
+}
+
+// TestSettlementHandler_PaymentNotFound verifica que um payment inexistente
+// gera um erro permanente (não vai para DLQ em loop).
+func TestSettlementHandler_PaymentNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, mockTx, mockRepo, _, _ := newHandler(ctrl)
+	paymentID := uuid.New()
+
+	withinTx(mockTx)
+	mockRepo.EXPECT().
+		FindByIDTx(gomock.Any(), gomock.Any(), paymentID).
+		Return(nil, sql.ErrNoRows)
+
+	err := h.HandleMessage(context.Background(), settlementMsg(t, paymentID, "SETTLED"))
+	assert.Error(t, err)
+}
+
+// TestSettlementHandler_DatabaseError_ShouldFail verifica que erros transientes
+// de banco de dados propagam o erro para reprocessamento.
+func TestSettlementHandler_DatabaseError_ShouldFail(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	h, mockTx, mockRepo, _, _ := newHandler(ctrl)
+	paymentID := uuid.New()
+
+	withinTx(mockTx)
+	mockRepo.EXPECT().
+		FindByIDTx(gomock.Any(), gomock.Any(), paymentID).
+		Return(&payment.Payment{ID: paymentID, Status: payment.StatusPending}, nil)
+	mockRepo.EXPECT().
+		UpdateStatus(gomock.Any(), gomock.Any(), paymentID, payment.StatusSettled, "").
+		Return(errors.New("connection timeout"))
+
+	err := h.HandleMessage(context.Background(), settlementMsg(t, paymentID, "SETTLED"))
+	assert.Error(t, err)
 }
 
 type MockLogger struct{}

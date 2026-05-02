@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"time"
 
-	paymentoutbox "github.com/LucasLCabral/payment-service/internal/payment/outbox"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -15,6 +14,18 @@ import (
 
 type PaymentRepository struct {
 	DB *sql.DB
+}
+
+type paymentCreatedPayload struct {
+	Event          string `json:"event"`
+	PaymentID      string `json:"payment_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+	AmountCents    int64  `json:"amount_cents"`
+	Currency       string `json:"currency"`
+	PayerID        string `json:"payer_id"`
+	PayeeID        string `json:"payee_id"`
+	Traceparent    string `json:"traceparent,omitempty"`
+	Tracestate     string `json:"tracestate,omitempty"`
 }
 
 func (r *PaymentRepository) FindByIdempotencyKey(ctx context.Context, tx *sql.Tx, idempotencyKey uuid.UUID) (*payment.Payment, error) {
@@ -51,7 +62,7 @@ func (r *PaymentRepository) Create(ctx context.Context, tx *sql.Tx, in *payment.
 
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
-	op := paymentoutbox.PaymentCreatedPayload{
+	op := paymentCreatedPayload{
 		Event:          "payment.created",
 		PaymentID:      paymentID.String(),
 		IdempotencyKey: in.IdempotencyKey.String(),
@@ -97,6 +108,17 @@ func (r *PaymentRepository) FindByID(ctx context.Context, id uuid.UUID) (*paymen
 		FROM transactions WHERE id = $1`
 
 	return scanPayment(r.DB.QueryRowContext(ctx, q, id))
+}
+
+func (r *PaymentRepository) FindByIDTx(ctx context.Context, tx *sql.Tx, id uuid.UUID) (*payment.Payment, error) {
+	const q = `
+		SELECT id, idempotency_key, amount_cents, currency, status,
+		       payer_id, payee_id, description, decline_reason, trace_id,
+		       created_at, updated_at
+		FROM transactions WHERE id = $1
+		FOR UPDATE`
+
+	return scanPayment(tx.QueryRowContext(ctx, q, id))
 }
 
 func (r *PaymentRepository) UpdateStatus(ctx context.Context, tx *sql.Tx, id uuid.UUID, status payment.PaymentStatus, declineReason string) error {
