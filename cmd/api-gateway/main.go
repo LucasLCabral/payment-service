@@ -42,6 +42,8 @@ func main() {
 
 	paymentAddr := getEnv("PAYMENT_GRPC_ADDR", "localhost:9090")
 	var pay httpapi.PaymentService
+	var paymentClientCB *payment.Client
+	
 	grpcConn, err := grpc.NewClient(
 		paymentAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -51,7 +53,8 @@ func main() {
 		log.Warn(ctx, "gRPC client failed", "addr", paymentAddr, "err", err)
 	} else {
 		defer grpcConn.Close()
-		pay = payment.New(grpcConn)
+		paymentClientCB = payment.NewClient(grpcConn, "api-gateway")
+		pay = paymentClientCB
 	}
 
 	reg := ws.NewRegistry(log)
@@ -62,10 +65,17 @@ func main() {
 	}
 
 	paymentsHandler := httpapi.NewPaymentsHandler(log, pay)
+	monitoringHandler := httpapi.NewMonitoringHandler(log)
+	
+	if paymentClientCB != nil {
+		monitoringHandler.RegisterCircuitBreaker(paymentClientCB)
+	}
 
 	rest := http.NewServeMux()
 	rest.HandleFunc("POST /payments", paymentsHandler.Create)
 	rest.HandleFunc("GET /payments/{id}", paymentsHandler.Get)
+	rest.HandleFunc("GET /health", monitoringHandler.Health)
+	rest.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
 	otelREST := otelhttp.NewHandler(httpapi.LoggingMiddleware(log)(rest), "api-gateway")
 
 	root := http.NewServeMux()
