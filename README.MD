@@ -33,8 +33,10 @@ The system consists of three main microservices:
 ### Architecture Highlights
 
 - **Async Processing**: Payment creation returns immediately while settlement happens asynchronously
-- **Event Sourcing**: All payment state changes are captured as events
-- **CQRS Pattern**: Separate read/write models for optimal performance
+- **Transactional Outbox**: Ensures reliable event publishing with database transactions
+- **Event-Driven Integration**: Services communicate via RabbitMQ messaging
+- **Audit Trail**: All payment changes are logged in append-only audit log
+- **Circuit Breaker**: Prevents cascading failures across service boundaries
 - **Distributed Tracing**: End-to-end request tracking across all services
 - **Real-time Notifications**: WebSocket-based status updates to clients
 
@@ -160,17 +162,39 @@ make k6-all
 
 # Individual test suites
 make k6-realistic    # Realistic user patterns
+# Run complete test suite
+make k6-all         # All tests: e2e -> realistic -> websocket -> stress -> chaos
+
+# Run individual test suites  
 make k6-e2e         # End-to-end flows
-make k6-chaos       # Chaos engineering
+make k6-realistic   # Realistic load patterns
 make k6-websocket   # WebSocket performance
 make k6-stress      # Stress testing
+make k6-chaos       # Chaos engineering
 ```
 
 ## 🧪 Testing
 
 ### Unit Tests
 ```bash
-make test
+make test                    # Run unit tests (fast, with -short flag)
+make test-all                # Run all tests with race detection  
+make test-coverage           # Generate coverage report (coverage.html)
+```
+
+### Integration Tests
+```bash
+make test-integration        # Run integration tests (auto-setup with Docker)
+make test-integration-local  # Run integration tests (services already running)
+make test-coverage-integration  # Integration tests with coverage report
+```
+
+**Integration test features:**
+- ✅ **Auto-setup**: Automatically starts required services with Docker Compose
+- ✅ **Database testing**: Real PostgreSQL transactions, concurrency, constraints
+- ✅ **Repository testing**: Payment and Ledger repository integration tests  
+- ✅ **Circuit Breaker**: Real-world scenarios, concurrent load, timing tests
+- ✅ **Cleanup**: Automatic teardown after tests complete
 ```
 
 ### Integration Tests
@@ -417,7 +441,7 @@ GET /payments/{payment_id}
 
 ### Real-time Updates
 ```bash
-WebSocket: ws://localhost:8080/payments/{payment_id}/notifications
+WebSocket: ws://localhost:8080/ws?payment_id={payment_id}
 ```
 
 ## 🤝 Contributing
