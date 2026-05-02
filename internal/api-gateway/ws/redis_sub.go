@@ -38,7 +38,13 @@ func SubscribePaymentStatus(ctx context.Context, redisURL string, reg *Registry,
 }
 
 func runOneSubscription(ctx context.Context, rdb *redis.Client, reg *Registry, log logger.Logger) {
-	sub := rdb.Subscribe(ctx, notify.ChannelPaymentStatus)
+	subscriber := notify.NewRedisSubscriber(rdb)
+	
+	sub, err := subscriber.Subscribe(ctx, notify.ChannelPaymentStatus)
+	if err != nil {
+		log.Error(ctx, "redis subscription failed", "err", err)
+		return
+	}
 	defer sub.Close()
 
 	ch := sub.Channel()

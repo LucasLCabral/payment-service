@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,9 +17,10 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/payment/settlement"
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/messaging"
+	"github.com/LucasLCabral/payment-service/pkg/monitoring"
 	"github.com/LucasLCabral/payment-service/pkg/notify"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
-	"github.com/LucasLCabral/payment-service/pkg/messaging"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	pb "github.com/LucasLCabral/payment-service/protog/payment"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -65,13 +67,18 @@ func main() {
 	}
 	defer db.Close()
 
+	cbDB := database.NewCBDatabase(db, "payment-service")
 	repo := &postgres.PaymentRepository{DB: db}
 	audit := &postgres.AuditRepository{DB: db}
 	txRunner := database.NewTransactor(db)
 	svc := service.NewPayment(txRunner, repo)
 
+	var rabbit *messaging.Publisher
+	var notifier settlement.PaymentStatusNotifier
+
 	if rabbitURL := os.Getenv("RABBITMQ_URL"); rabbitURL != "" {
-		rabbit, err := messaging.NewPublisher(ctx, messaging.Config{URL: rabbitURL})
+		var err error
+		rabbit, err = messaging.NewPublisher(ctx, messaging.Config{URL: rabbitURL})
 		if err != nil {
 			log.Error(ctx, "rabbitmq connection failed", "err", err)
 			os.Exit(1)
@@ -91,7 +98,6 @@ func main() {
 		pub := outbox.NewPublisher(db, rabbit, log)
 		go pub.Run(ctx)
 
-		var notifier settlement.PaymentStatusNotifier
 		if redisURL := getEnv("REDIS_URL", ""); redisURL != "" {
 			rdb, err := notify.ConnectRedis(ctx, redisURL)
 			if err != nil {
@@ -127,6 +133,28 @@ func main() {
 		log.Info(ctx, "gRPC listening", "addr", addr)
 		if err := srv.Serve(lis); err != nil {
 			log.Error(context.Background(), "gRPC server stopped", "err", err)
+		}
+	}()
+
+	// Monitoring endpoints
+	monitoringHandler := monitoring.NewHandler(log)
+	if rabbit != nil {
+		monitoringHandler.RegisterCircuitBreaker(rabbit)
+	}
+	if redisNotifier, ok := notifier.(*notify.RedisPublisher); ok && redisNotifier != nil {
+		monitoringHandler.RegisterCircuitBreaker(redisNotifier)
+	}
+	monitoringHandler.RegisterCircuitBreaker(cbDB)
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /health", monitoringHandler.Health)
+		mux.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
+		
+		httpAddr := ":" + getEnv("PAYMENT_HTTP_PORT", "8081")
+		log.Info(ctx, "monitoring HTTP listening", "addr", httpAddr)
+		if err := http.ListenAndServe(httpAddr, mux); err != nil {
+			log.Error(context.Background(), "monitoring HTTP server stopped", "err", err)
 		}
 	}()
 

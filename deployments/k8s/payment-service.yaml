@@ -17,6 +17,7 @@ spec:
           image: payment-service-image
           ports:
             - containerPort: 9090
+            - containerPort: 8081
           readinessProbe:
             tcpSocket:
               port: 9090
@@ -42,6 +43,8 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: PAYMENT_GRPC_PORT
+            - name: PAYMENT_HTTP_PORT
+              value: "8081"
             - name: PAYMENT_DB_HOST
               value: postgres-payment
             - name: PAYMENT_DB_PORT
@@ -97,4 +100,8 @@ spec:
   ports:
     - port: 9090
       targetPort: 9090
+      name: grpc
+    - port: 8081
+      targetPort: 8081
+      name: http
   type: ClusterIP

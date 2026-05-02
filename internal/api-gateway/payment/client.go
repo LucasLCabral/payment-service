@@ -22,17 +22,17 @@ type Client struct {
 
 func NewClient(conn grpc.ClientConnInterface, serviceName string) *Client {
 	config := circuitbreaker.GRPCConfig()
-	
+
 	config.MaxRequests = 3
 	config.Timeout = 30 * time.Second
 	config.ReadyToTrip = func(counts circuitbreaker.Counts) bool {
-		return counts.ConsecutiveFailures >= 3 || 
-		       (counts.Requests >= 5 && float64(counts.TotalFailures)/float64(counts.Requests) >= 0.6)
+		return counts.ConsecutiveFailures >= 3 ||
+			(counts.Requests >= 5 && float64(counts.TotalFailures)/float64(counts.Requests) >= 0.6)
 	}
 	config.IsSuccessful = isGRPCCallSuccessful
-	
+
 	cb := circuitbreaker.NewCircuitBreaker(
-		fmt.Sprintf("payment-service-%s", serviceName), 
+		fmt.Sprintf("payment-service-%s", serviceName),
 		config,
 	)
 
@@ -44,7 +44,7 @@ func NewClient(conn grpc.ClientConnInterface, serviceName string) *Client {
 
 func (c *Client) CreatePayment(ctx context.Context, in *payment.CreatePaymentRequest) (*payment.Payment, error) {
 	var result *payment.Payment
-	
+
 	err := c.cb.ExecuteWithContext(ctx, func(ctx context.Context) error {
 		resp, err := c.api.CreatePayment(ctx, &pb.CreatePaymentRequest{
 			IdempotencyKey: in.IdempotencyKey.String(),
@@ -54,16 +54,16 @@ func (c *Client) CreatePayment(ctx context.Context, in *payment.CreatePaymentReq
 			PayeeId:        in.PayeeID.String(),
 			Description:    in.Description,
 		})
-		
+
 		if err != nil {
 			return err
 		}
-		
+
 		paymentID, err := uuid.Parse(resp.GetPaymentId())
 		if err != nil {
 			return err
 		}
-		
+
 		t, err := time.Parse(time.RFC3339, resp.GetCreatedAt())
 		if err != nil {
 			return err
@@ -74,10 +74,10 @@ func (c *Client) CreatePayment(ctx context.Context, in *payment.CreatePaymentReq
 			Status:    protoconv.StatusFromProto(resp.GetStatus()),
 			CreatedAt: t,
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		if err == circuitbreaker.ErrOpenState {
 			return nil, fmt.Errorf("payment service temporarily unavailable (circuit breaker open): %w", err)
@@ -87,27 +87,27 @@ func (c *Client) CreatePayment(ctx context.Context, in *payment.CreatePaymentReq
 		}
 		return nil, err
 	}
-	
+
 	return result, nil
 }
 
 func (c *Client) GetPayment(ctx context.Context, req *payment.GetPaymentRequest) (*payment.Payment, error) {
 	var result *payment.Payment
-	
+
 	err := c.cb.ExecuteWithContext(ctx, func(ctx context.Context) error {
 		resp, err := c.api.GetPayment(ctx, &pb.GetPaymentRequest{
 			PaymentId: req.PaymentID.String(),
 		})
-		
+
 		if err != nil {
 			return err
 		}
-		
+
 		paymentID, err := uuid.Parse(resp.GetPaymentId())
 		if err != nil {
 			return err
 		}
-		
+
 		t, err := time.Parse(time.RFC3339, resp.GetCreatedAt())
 		if err != nil {
 			return err
@@ -118,10 +118,10 @@ func (c *Client) GetPayment(ctx context.Context, req *payment.GetPaymentRequest)
 			Status:    protoconv.StatusFromProto(resp.GetStatus()),
 			CreatedAt: t,
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		if err == circuitbreaker.ErrOpenState {
 			return nil, fmt.Errorf("payment service temporarily unavailable (circuit breaker open): %w", err)
@@ -131,7 +131,7 @@ func (c *Client) GetPayment(ctx context.Context, req *payment.GetPaymentRequest)
 		}
 		return nil, err
 	}
-	
+
 	return result, nil
 }
 
@@ -147,7 +147,7 @@ func isGRPCCallSuccessful(err error) bool {
 	if err == nil {
 		return true
 	}
-	
+
 	if grpcStatus, ok := status.FromError(err); ok {
 		switch grpcStatus.Code() {
 		case codes.InvalidArgument, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.Unauthenticated:
@@ -158,6 +158,6 @@ func isGRPCCallSuccessful(err error) bool {
 			return false
 		}
 	}
-	
+
 	return false
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/payment"
 	"github.com/LucasLCabral/payment-service/internal/api-gateway/ws"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
+	"github.com/LucasLCabral/payment-service/pkg/monitoring"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -42,8 +43,8 @@ func main() {
 
 	paymentAddr := getEnv("PAYMENT_GRPC_ADDR", "localhost:9090")
 	var pay httpapi.PaymentService
-	var paymentClientCB *payment.Client
-	
+	var paymentClient *payment.Client
+
 	grpcConn, err := grpc.NewClient(
 		paymentAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -53,8 +54,8 @@ func main() {
 		log.Warn(ctx, "gRPC client failed", "addr", paymentAddr, "err", err)
 	} else {
 		defer grpcConn.Close()
-		paymentClientCB = payment.NewClient(grpcConn, "api-gateway")
-		pay = paymentClientCB
+		paymentClient = payment.NewClient(grpcConn, "api-gateway")
+		pay = paymentClient
 	}
 
 	reg := ws.NewRegistry(log)
@@ -65,10 +66,10 @@ func main() {
 	}
 
 	paymentsHandler := httpapi.NewPaymentsHandler(log, pay)
-	monitoringHandler := httpapi.NewMonitoringHandler(log)
-	
-	if paymentClientCB != nil {
-		monitoringHandler.RegisterCircuitBreaker(paymentClientCB)
+	monitoringHandler := monitoring.NewHandler(log)
+
+	if paymentClient != nil {
+		monitoringHandler.RegisterCircuitBreaker(paymentClient)
 	}
 
 	rest := http.NewServeMux()

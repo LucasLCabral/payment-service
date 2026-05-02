@@ -1,4 +1,4 @@
-package http
+package monitoring
 
 import (
 	"encoding/json"
@@ -25,34 +25,34 @@ type CircuitBreakerStatus struct {
 	FailureRate          float64 `json:"failure_rate"`
 }
 
-type MonitoringHandler struct {
-	log             logger.Logger
-	cbProviders     []CircuitBreakerProvider
+type Handler struct {
+	log         logger.Logger
+	cbProviders []CircuitBreakerProvider
 }
 
-func NewMonitoringHandler(log logger.Logger) *MonitoringHandler {
-	return &MonitoringHandler{
+func NewHandler(log logger.Logger) *Handler {
+	return &Handler{
 		log:         log,
 		cbProviders: make([]CircuitBreakerProvider, 0),
 	}
 }
 
-func (h *MonitoringHandler) RegisterCircuitBreaker(provider CircuitBreakerProvider) {
+func (h *Handler) RegisterCircuitBreaker(provider CircuitBreakerProvider) {
 	h.cbProviders = append(h.cbProviders, provider)
 }
 
-func (h *MonitoringHandler) CircuitBreakerStatus(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) CircuitBreakerStatus(w http.ResponseWriter, r *http.Request) {
 	statuses := make([]CircuitBreakerStatus, 0, len(h.cbProviders))
-	
+
 	for _, provider := range h.cbProviders {
 		state, counts := provider.CircuitBreakerStats()
-		
+
 		var successRate, failureRate float64
 		if counts.Requests > 0 {
 			successRate = float64(counts.TotalSuccesses) / float64(counts.Requests) * 100
 			failureRate = float64(counts.TotalFailures) / float64(counts.Requests) * 100
 		}
-		
+
 		status := CircuitBreakerStatus{
 			Name:                 provider.CircuitBreakerName(),
 			State:                state.String(),
@@ -64,12 +64,12 @@ func (h *MonitoringHandler) CircuitBreakerStatus(w http.ResponseWriter, r *http.
 			SuccessRate:          successRate,
 			FailureRate:          failureRate,
 		}
-		
+
 		statuses = append(statuses, status)
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"circuit_breakers": statuses,
 		"timestamp":        r.Context().Value("request_time"),
 	}); err != nil {
@@ -78,31 +78,31 @@ func (h *MonitoringHandler) CircuitBreakerStatus(w http.ResponseWriter, r *http.
 	}
 }
 
-func (h *MonitoringHandler) Health(w http.ResponseWriter, r *http.Request) {
-	health := map[string]any{
+func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
+	health := map[string]interface{}{
 		"status":    "healthy",
 		"timestamp": r.Context().Value("request_time"),
 	}
-	
+
 	cbHealth := make(map[string]string)
 	allHealthy := true
-	
+
 	for _, provider := range h.cbProviders {
 		state, _ := provider.CircuitBreakerStats()
 		cbHealth[provider.CircuitBreakerName()] = state.String()
-		
+
 		if state == circuitbreaker.StateOpen {
 			allHealthy = false
 		}
 	}
-	
+
 	if len(cbHealth) > 0 {
 		health["circuit_breakers"] = cbHealth
 		if !allHealthy {
 			health["status"] = "degraded"
 		}
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(health); err != nil {
 		h.log.Error(r.Context(), "failed to encode health status", "error", err)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/LucasLCabral/payment-service/pkg/circuitbreaker"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -16,6 +17,7 @@ type Config struct {
 type Publisher struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
+	cb      circuitbreaker.CircuitBreaker
 }
 
 func NewPublisher(ctx context.Context, cfg Config) (*Publisher, error) {
@@ -30,26 +32,31 @@ func NewPublisher(ctx context.Context, cfg Config) (*Publisher, error) {
 		return nil, fmt.Errorf("failed to open channel: %w", err)
 	}
 
+	cb := circuitbreaker.NewCircuitBreaker("rabbitmq-publisher", circuitbreaker.MessagingConfig())
+
 	return &Publisher{
 		conn:    conn,
 		channel: channel,
+		cb:      cb,
 	}, nil
 }
 
 func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, body []byte, headers map[string]interface{}) error {
-	return p.channel.PublishWithContext(
-		ctx,
-		exchange,
-		routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp.Publishing{
-			ContentType:  "application/json",
-			Body:         body,
-			DeliveryMode: amqp.Persistent,
-			Headers:      headers,
-		},
-	)
+	return p.cb.ExecuteWithContext(ctx, func(ctx context.Context) error {
+		return p.channel.PublishWithContext(
+			ctx,
+			exchange,
+			routingKey,
+			false, // mandatory
+			false, // immediate
+			amqp.Publishing{
+				ContentType:  "application/json",
+				Body:         body,
+				DeliveryMode: amqp.Persistent,
+				Headers:      headers,
+			},
+		)
+	})
 }
 
 func (p *Publisher) Channel() *amqp.Channel {
@@ -61,6 +68,14 @@ func (p *Publisher) Close() error {
 		return err
 	}
 	return p.conn.Close()
+}
+
+func (p *Publisher) CircuitBreakerStats() (circuitbreaker.State, circuitbreaker.Counts) {
+	return p.cb.State(), p.cb.Counts()
+}
+
+func (p *Publisher) CircuitBreakerName() string {
+	return p.cb.Name()
 }
 
 type Consumer struct {

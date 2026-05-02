@@ -15,6 +15,8 @@ spec:
       containers:
         - name: ledger-service
           image: ledger-service-image
+          ports:
+            - containerPort: 8082
           resources:
             requests:
               memory: "128Mi"
@@ -52,6 +54,8 @@ spec:
                 secretKeyRef:
                   name: rabbitmq-credentials
                   key: uri
+            - name: LEDGER_HTTP_PORT
+              value: "8082"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               valueFrom:
                 configMapKeyRef:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/LucasLCabral/payment-service/pkg/circuitbreaker"
 	"github.com/LucasLCabral/payment-service/pkg/payment"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -18,6 +19,7 @@ type StatusPayload struct {
 
 type RedisPublisher struct {
 	rdb *redis.Client
+	cb  circuitbreaker.CircuitBreaker
 }
 
 const ChannelPaymentStatus = "payment:status"
@@ -36,20 +38,43 @@ func ConnectRedis(ctx context.Context, addrOrURL string) (*redis.Client, error) 
 }
 
 func NewRedisPublisher(rdb *redis.Client) *RedisPublisher {
-	return &RedisPublisher{rdb: rdb}
+	config := circuitbreaker.DefaultConfig()
+	config.MaxRequests = 5
+	config.ReadyToTrip = func(counts circuitbreaker.Counts) bool {
+		return counts.ConsecutiveFailures >= 5 ||
+			(counts.Requests >= 10 && float64(counts.TotalFailures)/float64(counts.Requests) >= 0.7)
+	}
+
+	cb := circuitbreaker.NewCircuitBreaker("redis-publisher", config)
+
+	return &RedisPublisher{
+		rdb: rdb,
+		cb:  cb,
+	}
 }
 
 func (p *RedisPublisher) NotifyPaymentStatus(ctx context.Context, paymentID uuid.UUID, status payment.PaymentStatus, declineReason string) error {
 	if p == nil || p.rdb == nil {
 		return nil
 	}
-	body, err := json.Marshal(StatusPayload{
-		PaymentID:     paymentID.String(),
-		Status:        string(status),
-		DeclineReason: declineReason,
+
+	return p.cb.ExecuteWithContext(ctx, func(ctx context.Context) error {
+		body, err := json.Marshal(StatusPayload{
+			PaymentID:     paymentID.String(),
+			Status:        string(status),
+			DeclineReason: declineReason,
+		})
+		if err != nil {
+			return err
+		}
+		return p.rdb.Publish(ctx, ChannelPaymentStatus, body).Err()
 	})
-	if err != nil {
-		return err
-	}
-	return p.rdb.Publish(ctx, ChannelPaymentStatus, body).Err()
+}
+
+func (p *RedisPublisher) CircuitBreakerStats() (circuitbreaker.State, circuitbreaker.Counts) {
+	return p.cb.State(), p.cb.Counts()
+}
+
+func (p *RedisPublisher) CircuitBreakerName() string {
+	return p.cb.Name()
 }

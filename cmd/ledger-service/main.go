@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/LucasLCabral/payment-service/pkg/database"
 	"github.com/LucasLCabral/payment-service/pkg/logger"
 	"github.com/LucasLCabral/payment-service/pkg/messaging"
+	"github.com/LucasLCabral/payment-service/pkg/monitoring"
 	"github.com/LucasLCabral/payment-service/pkg/telemetry"
 	"github.com/LucasLCabral/payment-service/pkg/trace"
 )
@@ -57,6 +59,8 @@ func main() {
 	}
 	defer db.Close()
 
+	cbDB := database.NewCBDatabase(db, "ledger-service")
+
 	rabbitURL := getEnv("RABBITMQ_URL", "amqp://rabbit_user:rabbit_pass@localhost:5672/")
 
 	pub, err := messaging.NewPublisher(ctx, messaging.Config{URL: rabbitURL})
@@ -77,6 +81,23 @@ func main() {
 	handler := ledger.NewHandler(svc, log)
 
 	go messaging.RunConsumer(ctx, messaging.Config{URL: rabbitURL}, ledger.Queue, log, handler.HandleMessage)
+
+	// Monitoring endpoints
+	monitoringHandler := monitoring.NewHandler(log)
+	monitoringHandler.RegisterCircuitBreaker(pub)
+	monitoringHandler.RegisterCircuitBreaker(cbDB)
+
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /health", monitoringHandler.Health)
+		mux.HandleFunc("GET /circuit-breakers", monitoringHandler.CircuitBreakerStatus)
+		
+		httpAddr := ":" + getEnv("LEDGER_HTTP_PORT", "8082")
+		log.Info(ctx, "monitoring HTTP listening", "addr", httpAddr)
+		if err := http.ListenAndServe(httpAddr, mux); err != nil {
+			log.Error(context.Background(), "monitoring HTTP server stopped", "err", err)
+		}
+	}()
 
 	log.Info(ctx, "ledger-service up",
 		"rabbitmq", rabbitURL,
