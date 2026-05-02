@@ -45,7 +45,7 @@ The system consists of three main microservices:
 ## 🛠️ Technology Stack
 
 ### Backend
-- **Go 1.22+** - Primary programming language
+- **Go 1.25+** - Primary programming language
 - **gRPC** - Inter-service communication with Protocol Buffers
 - **PostgreSQL** - Primary data storage with separate databases per service
 - **Redis** - Caching and session management
@@ -67,7 +67,7 @@ The system consists of three main microservices:
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.25+
 - Docker
 - [Minikube](https://minikube.sigs.k8s.io/docs/start/) - Local Kubernetes cluster
 - [Tilt](https://tilt.dev/) - Kubernetes development environment
@@ -144,34 +144,49 @@ make build
 
 ## 📊 Performance Testing
 
-The project includes comprehensive performance tests using k6:
+The project includes a comprehensive k6 test suite covering realistic usage patterns, end-to-end flows, stress scenarios, and chaos engineering. Full documentation in [`k6/README.md`](k6/README.md).
 
-### Available Test Suites
+### Test Suites
 
-- **Realistic Load Tests**: Simulate real user patterns (retail, corporate, e-commerce)
-- **End-to-End Tests**: Complete payment flow validation
-- **Chaos Testing**: System resilience under various failure scenarios  
-- **WebSocket Tests**: Real-time notification performance
-- **Stress Tests**: Find system limits and breaking points
+| Suite | Command | Description |
+|---|---|---|
+| Realistic Load | `make k6-realistic` | Simulates real user patterns: PIX retail, TED corporate, e-commerce, mobile, Black Friday |
+| End-to-End | `make k6-e2e` | Complete payment flow: creation → settlement → status validation |
+| Stress | `make k6-stress` | Ramps up to 1000 VUs to find system breaking points |
+| WebSocket | `make k6-websocket` | Real-time notification performance under concurrent connections |
+| Chaos | `make k6-chaos` | Resilience under simulated failures (DB latency, network issues) |
+| All | `make k6-all` | Full suite in sequence |
 
-### Run Performance Tests
+### Realistic Load Results (single-pod, local K8s)
+
+Results from `make k6-realistic` with 122 VUs across 5 concurrent scenarios (24 minutes):
+
+| Metric | Result |
+|---|---|
+| Success rate | **99.99%** (10374/10375 checks) |
+| Avg latency | 6.4ms |
+| p(90) latency | 9.79ms |
+| p(95) latency | 12.37ms |
+| p(95) Black Friday scenario | 10.09ms |
+| p(95) Corporate TED | 17.89ms |
+| Error rate | **0.02%** (1 out of 4911 requests) |
+
+### Running Tests
 
 ```bash
-# Run all test suites
-make k6-all
+# Recommended: run without K8s port-forward (more stable)
+make docker-up
+make k6-realistic
 
-# Individual test suites
-make k6-realistic    # Realistic user patterns
-# Run complete test suite
-make k6-all         # All tests: e2e -> realistic -> websocket -> stress -> chaos
+# Or inside the K8s cluster (eliminates port-forward overhead)
+kubectl run k6 --image=grafana/k6 --rm -it -- run - < k6/realistic_load_test.js
 
-# Run individual test suites  
-make k6-e2e         # End-to-end flows
-make k6-realistic   # Realistic load patterns
-make k6-websocket   # WebSocket performance
-make k6-stress      # Stress testing
-make k6-chaos       # Chaos engineering
+# With K8s port-forward (may be unstable under high load)
+make tilt          # environment up
+make k6-realistic  # in another terminal
 ```
+
+> **Note on stress tests and port-forward**: `make k6-stress` generates up to 15k req/s. The `kubectl port-forward` proxy can become unstable under this load — this is a local networking limitation, not a system failure. For accurate stress test results, run k6 directly inside the cluster.
 
 ## 🧪 Testing
 
@@ -256,8 +271,12 @@ kubectl apply -f deployments/k8s/
 # Scale services
 make k8s-scale SCALE_REPLICAS=5
 
-# Enable autoscaling
-kubectl apply -f deployments/k8s/hpa.yaml
+# Enable CPU/Memory autoscaling for api-gateway
+kubectl apply -f deployments/k8s/api-gateway-hpa.yaml
+
+# Enable queue-depth autoscaling via KEDA (requires KEDA operator)
+# kubectl apply -f https://github.com/kedacore/keda/releases/latest/download/keda-2.16.0.yaml
+# KEDA_ENABLED=1 kubectl apply -f deployments/k8s/keda.yaml
 ```
 
 ### Environment Configuration
@@ -332,9 +351,9 @@ kubectl port-forward svc/payment-service 8081:80
 - **Retry mechanisms**: Automatic recovery from transient failures
 
 ### Performance
-- **Sub-second response times**: P95 < 500ms for payment creation
+- **Low latency**: P95 < 20ms for payment creation (single-pod, local K8s)
 - **High throughput**: 1000+ payments/second per instance
-- **Efficient resource usage**: Optimized memory and CPU consumption
+- **Efficient resource usage**: Optimized DB connection pool, gRPC multiplexing
 
 ### Security
 - **Input validation**: Comprehensive request validation
